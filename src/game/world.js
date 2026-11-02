@@ -380,7 +380,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   { const l = LESSON_ORDER[LESSON_INDEX.astar]; const home = roomCenter(l.col, l.row); const r = horror.scene; r.traverse((o) => { o.frustumCulled = false; if (o.material) o.material.metalness = 0; }); r.position.set(home.x - 3.5, 0, home.z + 3.7); r.rotation.y = Math.PI * .75; scene.add(r); ex.keep.push(r);
     plaque('astar', 3.6, -1.3, .8, 'Movete por la sala: te busca un camino nuevo cada 0,6 segundos.');
     // Muros bajos: tapan el paso pero dejan verla venir.
-    const lowWall = '#5d6b5f'; solid(home.x + 1, home.x + 1.4, home.z - 2, home.z + 2, 1.1, lowWall); solid(home.x - 2.4, home.x + 1, home.z + 1.6, home.z + 2, 1.1, lowWall); solid(home.x - 3.4, home.x - 3, home.z - .8, home.z + 1, 1.1, lowWall);
+    const lowWall = '#5d6b5f'; solid(home.x + 1, home.x + 1.4, home.z - 2, home.z + 2, 1.1, lowWall); solid(home.x - 1.8, home.x + 1, home.z + 1.6, home.z + 2, 1.1, lowWall); solid(home.x - 3.4, home.x - 3, home.z - .8, home.z + 1, 1.1, lowWall);
     grid.rebuild();
     const mixer = new THREE.AnimationMixer(r), run = mixer.clipAction(horror.animations[0]).play(); let runW = 0;
     const dotGeo = new THREE.SphereGeometry(.06, 8, 8), dots = new THREE.InstancedMesh(dotGeo, new THREE.MeshBasicNodeMaterial({ color: '#ffd34d' }), 120);
