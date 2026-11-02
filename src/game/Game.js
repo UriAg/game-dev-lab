@@ -11,6 +11,7 @@ import { buildWorld, roomAt, roomCenter, HEIGHT, COLS, ROWS, ROOM } from './worl
 import * as S from './state.js';
 import { LESSON_ORDER, LESSONS } from '../lessons/index.js';
 
+const view = new THREE.Vector3(), toTarget = new THREE.Vector3();
 const EYE = 1.62, WALK = 3.2, SPRINT = 5.4, SENS = .0021, STRIDE = 1.45;
 const expT = (k, dt) => 1 - Math.exp(-k * dt);
 
@@ -24,7 +25,7 @@ export class Game {
     this.yaw = 0; this.pitch = 0; this.roll = 0; this.bob = 0; this.stride = 0; this.leftFoot = true; this.walked = 0;
     this.yawRate = 0;
     this.feel = { smooth: true, bob: true, roll: true, steps: true, slide: true, normalize: true, k: 10, sens: SENS };
-    this.autoPath = null; this.current = null; this.nearBoard = null;
+    this.autoPath = null; this.current = null; this.aim = null;
     this.moveResult = 'free'; this.last = { f: 0, s: 0, dirX: 0, dirZ: 0, speed: 0 };
     this.fx = { ao: true, dof: false };
     this.focusDistance = 4;
@@ -108,7 +109,7 @@ export class Game {
         else if (S.mode.value === 'try') this.backToLesson();
         else if (S.mode.value === 'walk' && !this.input.locked) { this.input.releaseKeys(); S.mode.value = 'paused'; }
       }
-      if (e.code === 'KeyE') { if (S.mode.value === 'walk' && this.world.exhibits.use(this)) return; if (this.otherBoard()) this.openLesson(this.nearBoard); else if (S.mode.value === 'try') this.backToLesson(); }
+      if (e.code === 'KeyE') { if (this.aim) this.aim.act(); else if (S.mode.value === 'try') this.backToLesson(); }
     });
 
     S.loadStatus.value = 'Compilando shaders';
@@ -151,12 +152,29 @@ export class Game {
     if (m === 'start' || m === 'paused') { this.begin(); return; }
     if (!this.input.locked) { if (m === 'walk' || m === 'try') this.input.lock(); return; }
     if (e.button === 2) this.walkToCrosshair();
-    else if (this.otherBoard()) this.openLesson(this.nearBoard);
+    else this.aim?.act();
   }
-  // Pizarrón cercano que se puede abrir: caminando, cualquiera; con una lección minimizada, otro distinto.
-  otherBoard() {
+  // Dirección exacta de la mira, contando también cuánto mirás hacia arriba o abajo.
+  viewDir() { return view.set(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch)); }
+  // ¿La mira pasa a menos de `radius` del punto, y el punto está a menos de `range`?
+  aimsAt(p, radius, range) {
+    const d = this.viewDir(), v = toTarget.subVectors(p, this.pos), along = v.dot(d);
+    return along > 0 && v.length() < range && v.addScaledVector(d, -along).length() < radius;
+  }
+  // ¿La mira cae dentro del rectángulo del pizarrón? Es un plano mirando a +z.
+  aimsAtBoard(b, range) {
+    const d = this.viewDir(), t = (b.center.z - this.pos.z) / d.z;
+    if (d.z >= 0 || t <= 0 || Math.hypot(b.center.x - this.pos.x, b.center.z - this.pos.z) > range) return false;
+    return Math.abs(this.pos.x + d.x * t - b.center.x) < 2 && Math.abs(this.pos.y + d.y * t - b.center.y) < 1.25;
+  }
+  // Qué se puede accionar ahora: lo que está bajo la mira y en rango. Con una lección minimizada, su propio pizarrón no cuenta.
+  findAim(r) {
     const m = S.mode.value;
-    return this.nearBoard && (m === 'walk' || (m === 'try' && this.nearBoard !== S.lessonId.value));
+    if (m !== 'walk' && m !== 'try') return null;
+    const hit = this.world.exhibits.target(this);
+    if (hit) return hit;
+    if (r && (m === 'walk' || r.id !== S.lessonId.value) && this.aimsAtBoard(this.world.boards[r.id], 5.5)) return { verb: 'Leer', act: () => this.openLesson(r.id) };
+    return null;
   }
   openLesson(id) {
     const prev = LESSONS[S.lessonId.value];
@@ -303,13 +321,8 @@ export class Game {
       this.pedestalSpot.color.copy(tint); const audio = r.id === 'audio', track = r.id === 'smoothing', walk = r.id === 'gamefeel', wide = audio || track || walk || r.id === 'compression', sx = c.x + (audio ? 1.5 : track ? .1 : walk ? 0 : 2.6), sz = c.z + (audio ? 1.8 : track ? 1.75 : walk ? 0 : -1);
       this.pedestalSpot.intensity = audio || walk ? 90 : this.world.pedestals.has(r.id) ? 80 : 0; this.pedestalSpot.angle = wide ? .78 : .42; this.pedestalSpot.position.set(sx, 3.15, sz); this.pedestalSpot.target.position.set(sx, 0, sz);
     }
-    let near = null;
-    if (r) {
-      const b = this.world.boards[r.id], dx = b.center.x - this.pos.x, dz = b.center.z - this.pos.z, d = Math.hypot(dx, dz);
-      const facing = (-Math.sin(this.yaw) * dx - Math.cos(this.yaw) * dz) / (d || 1);
-      if (d < 6 && facing > .55) near = r.id;
-    }
-    if (near !== this.nearBoard) { this.nearBoard = near; S.promptText.value = near ? `${LESSONS[near].title}` : ''; }
+    this.aim = this.findAim(r);
+    S.promptText.value = this.aim?.verb ?? '';
   }
 
   applyCamera(dt) {

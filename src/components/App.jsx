@@ -112,8 +112,8 @@ function Hud() {
   return <div class="hud">
     <div class="tl"><Minimap /><div class="room">{S.roomName}</div></div>
     <div class="tr"><span><span>{S.fps}</span> FPS · {S.backendName} · <span>{S.visited.value.size}</span>/12</span><FullscreenButton /></div>
-    {(S.mode.value === 'walk' || S.mode.value === 'try') && <i class="cross" />}
-    {game?.otherBoard?.() && S.promptText.value && <div class="promptbar"><kbd>E</kbd> o click: <b>{S.promptText}</b></div>}
+    {(S.mode.value === 'walk' || S.mode.value === 'try') && <i class={S.promptText.value ? 'cross on' : 'cross'} />}
+    {S.promptText.value && (S.mode.value === 'walk' || S.mode.value === 'try') && <div class="promptbar"><kbd>E</kbd> <b>{S.promptText}</b></div>}
     {S.notice.value && <div class="notice">{S.notice}</div>}
     {S.mode.value === 'walk' && <div class="keys"><kbd>WASD</kbd> caminar <kbd>Shift</kbd> correr <kbd>Click der.</kbd> ir a un punto <kbd>F</kbd> pantalla completa <kbd>Esc</kbd> menú</div>}
   </div>;

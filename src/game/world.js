@@ -382,7 +382,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(.07, .08, .05, 24), new THREE.MeshBasicNodeMaterial({ color: '#ff2f45' })), base2 = new THREE.Mesh(new THREE.CylinderGeometry(.11, .11, .03, 24), new THREE.MeshStandardNodeMaterial({ color: '#1c2740' })); base2.position.set(x - .55, deskH + .015, z + .15); cap.position.set(x - .55, deskH + .055, z + .15); scene.add(base2, cap);
     const lesson = LESSON_ORDER[LESSON_INDEX.prompts]; let shown = '', frames = 0, flash = 0;
     const paint = (text) => { gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '24px "JetBrains Mono", monospace'; text.split('\n').flatMap((t) => t.match(/.{1,68}/g) ?? ['']).slice(0, 12).forEach((t, i) => gc.fillText(t, 30, 44 + i * 29)); tex.needsUpdate = true; };
-    ex.prompts = { button: cap.position, deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Deploy: prompt copiado'); },
+    ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Deploy: prompt copiado'); },
       update(dt, t, game) { if (frames++ % 30 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(text); } } flash *= Math.exp(-dt * 2.5); cap.position.y = deskH + .055 - flash * .025; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
     const chair = prop(models.chair, { h: .95 }); chair.position.set(x, 0, z + .75); chair.rotation.y = Math.PI / 2; scene.add(chair);
     grid.addBox(x - .85, x + .85, z - .45, z + 1.1, 'desk'); }
@@ -421,12 +421,14 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   }
 
   // Interacciones con E que no abren un pizarrón.
-  const near = (game, p, d) => Math.hypot(game.pos.x - p.x, game.pos.z - p.z) < d;
   { const u = ex.collision.update?.bind(ex.collision); ex.collision.update = (...a) => { u?.(...a); ex.lever.handle.rotation.z = ex.collision.doorClosed ? .7 : -.7; }; }
-  ex.use = (game) => {
-    if (near(game, ex.lever.pos, 1.6)) { ex.collision.setDoor(!ex.collision.doorClosed); game.say(ex.collision.doorClosed ? 'Puerta cerrada: el mapa cambió' : 'Puerta abierta: el mapa cambió'); return true; }
-    if (near(game, ex.prompts.button, 1.9)) { ex.prompts.deploy(game); return true; }
-    return false;
+  const doorAim = new THREE.Vector3(doorMesh.position.x, 1.1, doorZ);
+  const toggleDoor = (game) => { ex.collision.setDoor(!ex.collision.doorClosed); game.say(ex.collision.doorClosed ? 'Puerta cerrada: el mapa cambió' : 'Puerta abierta: el mapa cambió'); };
+  // Devuelve qué se puede accionar con la mira en este momento, o null. La palanca solo cuenta desde su lado de la pared.
+  ex.target = (game) => {
+    if ((game.pos.x > ex.lever.pos.x - .1 && game.aimsAt(ex.lever.pos, .4, 2.3)) || game.aimsAt(doorAim, DOOR / 2, 2.8)) return { verb: ex.collision.doorClosed ? 'Abrir' : 'Cerrar', act: () => toggleDoor(game) };
+    if (game.aimsAt(ex.prompts.pc, .8, 2.8)) return { verb: 'Copiar', act: () => ex.prompts.deploy(game) };
+    return null;
   };
   return ex;
 }
