@@ -12,6 +12,9 @@ import * as S from './state.js';
 import { LESSON_ORDER, LESSONS } from '../lessons/index.js';
 
 const view = new THREE.Vector3(), toTarget = new THREE.Vector3();
+// Encuadre de la pantalla de inicio: la pieza de la sala 1, con la cámara moviéndose apenas.
+const TITLE = { x: 5.6, y: 1.45, z: 4.5, yaw: -.9, pitch: -.015 };
+const titlePos = new THREE.Vector3();
 const EYE = 1.62, WALK = 3.2, SPRINT = 5.4, SENS = .0021, STRIDE = 1.45;
 const expT = (k, dt) => 1 - Math.exp(-k * dt);
 
@@ -31,6 +34,8 @@ export class Game {
     this.focusDistance = 4;
     this.mirror = null; this.frame = 0; this.minimap = null; this.time = 0; this.roomClock = {};
     this.metrics = {}; this.frameTimes = [];
+    this.titleBlend = 1;
+    this.still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
   async start() {
@@ -54,7 +59,7 @@ export class Game {
     const spot = (angle) => { const l = new THREE.SpotLight('#ffffff', 0, 6, angle, .55, 1.6); scene.add(l, l.target); return l; };
     this.boardSpot = spot(.62); this.pedestalSpot = spot(.42);
 
-    S.loadStatus.value = 'Transcodificando textura KTX2';
+    S.loadStatus.value = 'Cargando pisos y paredes'; S.loadProgress.value = 3;
     const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer);
     this.ktx2 = ktx2;
     const t0 = performance.now();
@@ -64,7 +69,7 @@ export class Game {
     const floorNormal = await ktx2.loadAsync('/assets/floor.normal.ktx2'), floorRough = await ktx2.loadAsync('/assets/floor.rough.ktx2');
     floorNormal.colorSpace = floorRough.colorSpace = THREE.NoColorSpace;
 
-    S.loadStatus.value = 'Decodificando modelos meshopt';
+    S.loadStatus.value = 'Trayendo los objetos de las salas'; S.loadProgress.value = 5;
     const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     const t1 = performance.now();
     const opt = (await gltf.loadAsync('/assets/claude.opt.glb')).scene;
@@ -77,7 +82,7 @@ export class Game {
     const metal = { map: await ktx2.loadAsync('/assets/metal.ktx2'), normalMap: await ktx2.loadAsync('/assets/metal.normal.ktx2') }; metal.map.colorSpace = THREE.SRGBColorSpace; metal.normalMap.colorSpace = THREE.NoColorSpace; models.metal = metal;
     this.stats = await (await fetch('/assets/stats.json')).json();
 
-    S.loadStatus.value = 'Armando las salas y la grilla de colisión';
+    S.loadStatus.value = 'Armando las salas'; S.loadProgress.value = 9;
     const world = this.world = buildWorld(scene, { map: floor, normalMap: floorNormal, roughnessMap: floorRough }, opt, loadRaw, horror, models);
     this.grid = world.grid;
 
@@ -90,15 +95,16 @@ export class Game {
 
     this.pathDots = [];
     addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
+    this.input.uiActive = () => S.mode.value === 'start' || S.mode.value === 'paused';
     this.input.onLockChange = (l) => this.onLock(l);
-    this.input.onLockFail = () => this.say('Hacé click para capturar el mouse, o arrastrá para mirar');
+    this.input.onLockFail = () => this.say('Hacé click para mirar con el mouse, o arrastrá');
     this.canvas.addEventListener('mousedown', (e) => this.onClick(e));
     // Bloquea el menú de Chrome en todo el juego. F12 sigue andando porque esto no toca el teclado.
     document.addEventListener('contextmenu', (e) => { if (e.target?.tagName !== 'TEXTAREA') e.preventDefault(); });
     document.addEventListener('fullscreenchange', () => { S.fullscreen.value = !!document.fullscreenElement; });
     addEventListener('keydown', (e) => {
       const typing = e.target?.tagName === 'TEXTAREA';
-      if (e.code === 'Tab' && !typing) {
+      if (e.code === 'Tab' && !typing && !this.input.uiActive()) {
         e.preventDefault(); if (e.repeat) return;
         if (S.mode.value === 'lesson') this.tryWalking(); else if (S.mode.value === 'try') this.backToLesson();
       }
@@ -112,9 +118,9 @@ export class Game {
       if (e.code === 'KeyE') { if (this.aim) this.aim.act(); else if (S.mode.value === 'try') this.backToLesson(); }
     });
 
-    S.loadStatus.value = 'Compilando shaders';
+    S.loadStatus.value = 'Prendiendo las luces'; S.loadProgress.value = 11;
     await renderer.compileAsync(scene, cam).catch(() => {});
-    S.loadStatus.value = '';
+    S.loadStatus.value = ''; S.loadProgress.value = 12;
     this.resume();
     S.roomName.value = roomAt(this.pos.x, this.pos.z).title;
     let prev = performance.now();
@@ -189,7 +195,7 @@ export class Game {
     const lesson = LESSONS[S.lessonId.value]; lesson?.onClose?.(lesson.params, this);
     this.setMirror(null); S.lessonId.value = null; S.mode.value = 'walk'; this.sound.init();
     // Esc no cuenta como gesto del usuario: el mouse se recaptura con el próximo click.
-    if (fromEsc) this.say('Hacé click para volver a capturar el mouse'); else this.input.lock();
+    if (fromEsc) this.say('Hacé click para volver a mirar con el mouse'); else this.input.lock();
   }
   say(text) { S.notice.value = text; clearTimeout(this.noticeT); this.noticeT = setTimeout(() => { S.notice.value = ''; }, 2600); }
   toggleFullscreen() {
@@ -228,6 +234,7 @@ export class Game {
   teleport(id) {
     const l = LESSONS[id], c = roomCenter(l.col, l.row);
     this.pos.set(c.x - 1, EYE, c.z + .5); this.yaw = 0; this.pitch = 0; this.vel.set(0, 0, 0); this.autoPath = null;
+    this.titleBlend = 0;
     this.begin();
   }
   setMirror(canvas) {
@@ -338,6 +345,19 @@ export class Game {
     c.position.set(this.pos.x + Math.cos(this.yaw) * bobX, EYE + bobY, this.pos.z - Math.sin(this.yaw) * bobX);
     c.rotation.set(this.pitch, this.yaw, this.roll);
     this.hand.position.set(c.position.x, 2, c.position.z);
+    // En el inicio manda el encuadre de título. Al entrar, la cámara baja suavemente hasta el jugador.
+    if (S.mode.value === 'start') {
+      const s = this.still ? 0 : Math.sin(this.time * .13), h = this.still ? 0 : Math.sin(this.time * .19) * .02;
+      titlePos.set(TITLE.x + s * .12, TITLE.y + h, TITLE.z - s * .06);
+      c.position.copy(titlePos); c.rotation.set(TITLE.pitch, TITLE.yaw + s * .018, 0);
+      this.titleBlend = 1;
+    } else if (this.titleBlend > 0) {
+      this.titleBlend = Math.max(0, this.titleBlend - dt / .7);
+      const t = this.titleBlend, k = t * t * (3 - 2 * t);
+      c.position.lerp(titlePos, k);
+      c.rotation.x += (TITLE.pitch - c.rotation.x) * k;
+      c.rotation.y += (TITLE.yaw - c.rotation.y) * k;
+    }
     if (this.fx.dof) {
       // Enfoca lo que está en la mira: marcha por la grilla hasta chocar o tocar el piso.
       const d = new THREE.Vector3(); c.getWorldDirection(d);

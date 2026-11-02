@@ -3,6 +3,7 @@ import { Game } from '../game/Game.js';
 import * as S from '../game/state.js';
 import { LESSONS, LESSON_ORDER, LESSON_INDEX } from '../lessons/index.js';
 import { COLS, ROWS, ROOM } from '../game/world.js';
+import { MODELS, MODELS_NC } from './credits.js';
 
 let game;
 
@@ -121,19 +122,114 @@ function Hud() {
   </div>;
 }
 
+const nn = (i) => String(i + 1).padStart(2, '0');
+const Origin = () => <p class="m-origin">Nació para entender cómo está hecho <a href="https://halloween.dev" target="_blank" rel="noopener noreferrer">The Last Deploy</a>, el juego 3D de <b>midudev</b>.</p>;
+const HEADPHONES = 'Usá auriculares: el sonido cambia según dónde estés parado.';
+const CONTROLS = [['W A S D', 'Caminar'], ['Shift', 'Correr'], ['Mouse', 'Mirar'], ['E o click', 'Leer o usar lo que apuntás'], ['Click derecho', 'Ir hasta ese punto'], ['Tab', 'En un pizarrón, probar caminando'], ['Esc', 'Abrir este menú']];
+const touch = () => matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+// Regla de doce segmentos: durante la carga avanza, y después muestra las salas visitadas con su color.
+function Ticks({ loading }) {
+  return <div class="m-ticks" aria-hidden="true">{LESSON_ORDER.map((l, i) => {
+    const on = loading ? i < S.loadProgress.value : S.visited.value.has(l.id);
+    return <i class={on ? 'on' : ''} style={{ '--c': loading ? 'var(--a)' : l.color }} />;
+  })}</div>;
+}
+
+function CreditRows({ list }) {
+  return <ul>{list.map((m) => <li><a href={m.url} target="_blank" rel="noopener noreferrer">{m.name}</a><span>{m.author}</span><small>{m.license}</small></li>)}</ul>;
+}
+
 function Menu() {
   const start = S.mode.value === 'start', ready = !S.loadStatus.value;
-  return <div class="menu">
-    <div class="menucard">
-      <p class="eyebrow">Laboratorio jugable</p>
-      <h1>{start ? 'Laboratorio de juegos web' : 'Pausa'}</h1>
-      <p class="lead">Doce salas, doce pizarrones. Cada uno explica una técnica de cómo se hace un juego 3D en el navegador, y este juego está hecho con esas mismas técnicas.</p>
-      <button class="btn big" disabled={!ready} onClick={() => game.begin()}>{ready ? (start ? 'Entrar' : 'Seguir caminando') : S.loadStatus}</button>
-      {ready && <><h3>Ir directo a una sala</h3><div class="rooms">{LESSON_ORDER.map((l, i) => <button style={{ '--room': l.color }} class={S.visited.value.has(l.id) ? 'seen' : ''} onClick={() => game.teleport(l.id)}><i>{String(i + 1).padStart(2, '0')}</i>{l.title}</button>)}</div></>}
-      <div class="menufoot"><p class="hint">Para el audio espacial, usá auriculares.</p><FullscreenButton /></div>
-      <p class="credit">Este sitio se basó en <a href="https://halloween.dev" target="_blank" rel="noopener noreferrer"><b>The Last Deploy</b></a>, el juego de <b>midudev</b>, para aprender cómo funciona. Todo el crédito de la idea original es suyo. Este es un proyecto de estudio independiente, sin relación oficial con el juego ni con su autor.</p>
-      <p class="credit">Modelos 3D con licencia CC BY 4.0: Office Chair (j.a.m), Industrial Table (Elasta Kristya), Cpu (Lutvi Angreani), Gaming keyboard (ZxTulz), Ultrawide Monitor (dylanheyes), Stage Speaker (Sousinho), Server Racking System (wpanayides), Caja_1 (roberto_herreratec) y Rusty metal floor texture (patspet). Con licencia CC BY-NC: TV Screen (Théo Richard) y Mannequin Head #3 (Switch &amp; Lever). Con licencia CC BY-NC-SA: Mouse - Razer DeathAdder (gimora). Lista completa en CREDITOS.md.</p>
+  const [view, setView] = useState('root');
+  const [hint, setHint] = useState(null);
+  const root = useRef(null), back = useRef(null);
+  const seen = S.visited.value.size, next = LESSON_ORDER.find((l) => !S.visited.value.has(l.id));
+  const here = game?.current ? LESSON_INDEX[game.current.id] : 0;
+  const main = !start
+    ? { label: 'Seguir caminando', run: () => game.begin(), hint: '' }
+    : seen === 0 ? { label: 'Entrar al laboratorio', run: () => game.begin(), hint: 'Doce salas para recorrer. En cada una, un pizarrón explica cómo se resuelve una parte de un juego 3D, y después lo probás caminando.' }
+    : next ? { label: `Seguir en la sala ${nn(LESSON_INDEX[next.id])}`, run: () => game.teleport(next.id), hint: `${next.title}. ${next.tagline}` }
+    : { label: 'Volver al laboratorio', run: () => game.begin(), hint: 'Ya pasaste por las doce salas. Podés recorrerlas de nuevo cuando quieras.' };
+  const open = (v, e) => { back.current = e.currentTarget.dataset.key; setView(v); };
+  const nav = (key, text) => ({ 'data-nav': key, onFocus: () => setHint(text), onPointerEnter: (e) => e.currentTarget.focus({ preventScroll: true }) });
+
+  useEffect(() => {
+    if (!ready) return;
+    const q = view === 'root' && back.current ? `[data-nav="${back.current}"]` : view === 'rooms' ? `[data-nav="${(!start ? LESSON_ORDER[here] : next ?? LESSON_ORDER[0]).id}"]` : '[data-nav]';
+    root.current?.querySelector(q)?.focus({ preventScroll: true });
+    if (view === 'root') back.current = null;
+  }, [view, ready]);
+
+  useEffect(() => {
+    const k = (e) => {
+      if (e.code === 'Escape' && view !== 'root') { setView('root'); return; }
+      if (view === 'credits') return;
+      const list = [...(root.current?.querySelectorAll('[data-nav]') ?? [])], i = list.indexOf(document.activeElement);
+      if (!list.length) return;
+      const go = (n) => { e.preventDefault(); list[(n + list.length) % list.length].focus({ preventScroll: true }); };
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') go(i + 1);
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') go(i - 1);
+      if (e.code === 'Home') go(0);
+      if (e.code === 'End') go(list.length - 1);
+    };
+    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+  }, [view]);
+
+  const fs = <div class="m-corner"><FullscreenButton /></div>;
+  const notice = S.notice.value && <div class="notice">{S.notice}</div>;
+
+  if (view === 'credits') return <div class="menu" ref={root}>
+    <div class="m-shade" />
+    <section class="m-credits" tabIndex={0}><div>
+      <h2>Créditos</h2>
+      <h3>La idea original</h3>
+      <p><a href="https://halloween.dev" target="_blank" rel="noopener noreferrer">The Last Deploy</a> es un juego de <b>midudev</b>. Este laboratorio nació para entender cómo funciona, y todo el crédito de la idea original es suyo. Es un proyecto de estudio independiente, sin relación oficial con el juego ni con su autor.</p>
+      <h3>Modelos 3D</h3>
+      <p>Estos modelos se usan con licencia <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>. Para que pesen menos, simplificamos las mallas y comprimimos la geometría y las texturas. En el monitor cambiamos la imagen de la pantalla.</p>
+      <CreditRows list={MODELS} />
+      <h3>Modelos de uso no comercial</h3>
+      <p>Estos tres modelos solo se pueden usar en proyectos sin fines comerciales. Para que pesen menos, redujimos sus texturas y comprimimos o simplificamos su geometría.</p>
+      <CreditRows list={MODELS_NC} />
+    </div></section>
+    <button class="m-back m-corner-btn" data-nav="back" onClick={() => setView('root')}>Volver <kbd>Esc</kbd></button>
+  </div>;
+
+  if (view === 'rooms') return <div class={`menu ${start ? '' : 'pause'}`} ref={root}>
+    <div class="m-shade" />{fs}
+    <div class="m-col list">
+      <header><h2 class="m-sub">Elegir sala</h2><p class="m-meta">{seen} de 12 visitadas</p></header>
+      <nav class="m-rooms" aria-label="Salas">{LESSON_ORDER.map((l, i) => <button class="m-room" style={{ '--r': l.color }} {...nav(l.id, l.tagline)} onClick={() => game.teleport(l.id)}><i>{nn(i)}</i><span>{l.title}</span>{S.visited.value.has(l.id) && <small>visitada</small>}</button>)}</nav>
+      <div><p class="m-desc">{hint}</p><button class="m-back" {...nav('back', '')} onClick={() => setView('root')}><kbd>Esc</kbd> Volver</button></div>
+    </div>{notice}
+  </div>;
+
+  return <div class={`menu ${start ? '' : 'pause'} ${ready ? 'ready' : ''}`} ref={root}>
+    {start && <div class="m-veil" />}
+    <div class="m-shade" />{ready && fs}
+    <div class="m-col">
+      <header class="m-brand">
+        {start ? <h1 class="m-title">Laboratorio<small>de juegos web</small></h1> : <h1 class="m-title">Pausa</h1>}
+        <Ticks loading={!ready} />
+        {start ? <Origin /> : <p class="m-meta">Estás en la sala {nn(here)}: {S.roomName} · {seen} de 12 visitadas</p>}
+      </header>
+      {ready
+        ? <nav class="m-list" aria-label="Menú">
+            <button class="m-item main" data-key="main" {...nav('main', main.hint)} onClick={main.run}>{main.label}</button>
+            <button class="m-item" data-key="rooms" {...nav('rooms', 'Saltá directo a cualquiera de las doce salas.')} onClick={(e) => open('rooms', e)}>Elegir sala{seen > 0 && <span>{seen}/12</span>}</button>
+            <button class="m-item" data-key="credits" {...nav('credits', 'Quién hizo cada modelo 3D y de dónde salió la idea.')} onClick={(e) => open('credits', e)}>Créditos</button>
+          </nav>
+        : <p class="m-status" role="status">{S.loadStatus}</p>}
+      <div class="m-low">
+        {touch() && start && <p class="m-note">Por ahora se juega en computadora, con teclado y mouse.</p>}
+        <p class="m-desc">{ready ? hint : ''}</p>
+      </div>
     </div>
+    {start
+      ? <p class="m-foot">{HEADPHONES}</p>
+      : <div class="m-foot"><dl class="m-controls">{CONTROLS.map(([k, v]) => <><dt>{k}</dt><dd>{v}</dd></>)}</dl><p>{HEADPHONES}</p></div>}
+    {notice}
   </div>;
 }
 
@@ -145,8 +241,8 @@ export default function App() {
   const m = S.mode.value;
   return <>
     <canvas ref={ref} class="world" />
-    {error ? <div class="menu"><div class="menucard"><h1>No pude iniciar el juego</h1><p class="lead">{error}</p></div></div> : <>
-      {m !== 'start' && <Hud />}
+    {error ? <div class="menu ready"><div class="m-shade" /><div class="m-col"><header class="m-brand"><h1 class="m-sub">No se pudo abrir el laboratorio</h1><p class="m-origin">Probá recargar la página. Si sigue sin abrir, usá Chrome o Edge actualizados en una computadora.</p></header><nav class="m-list"><button class="m-item main" onClick={() => location.reload()}>Recargar</button></nav><div class="m-low"><Origin /></div></div></div> : <>
+      {m !== 'start' && m !== 'paused' && <Hud />}
       {(m === 'start' || m === 'paused') && <Menu />}
       {(m === 'lesson' || m === 'try') && <Lesson />}
     </>}

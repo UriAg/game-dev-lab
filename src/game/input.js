@@ -9,6 +9,7 @@ export class Input {
     this.padHeld = new Set();
     this.onLockChange = () => {};
     addEventListener('keydown', (e) => {
+      if (this.uiActive?.()) return; // En los menús, las teclas navegan la interfaz.
       if (e.target?.tagName === 'TEXTAREA' || e.target?.tagName === 'INPUT') return;
       this.keys.add(e.code); this.lastCode = e.code; this.lastKey = e.key;
       if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) e.preventDefault();
