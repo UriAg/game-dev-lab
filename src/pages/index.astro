@@ -1,4 +1,5 @@
 ---
+import Analytics from '@vercel/analytics/astro';
 import App from '../components/App.jsx';
 import '../components/game.css';
 ---
@@ -13,5 +14,6 @@ import '../components/game.css';
   </head>
   <body>
     <App client:only="preact" />
+    <Analytics />
   </body>
 </html>
