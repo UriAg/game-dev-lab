@@ -501,8 +501,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), switches, flip(s, game) { lesson.params[s.key] = !lesson.params[s.key]; game.S.paramsRev.value++; game.sound.blip(660); }, deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Prompt copiado. Terminaste el recorrido: pegalo en tu IA'); },
       update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
     // La silla quedó corrida y girada, como si alguien se acabara de levantar.
-    const chair = prop(models.chair, { h: .95 }); chair.position.set(x - .95, 0, z + 1.15); chair.rotation.y = 2.5; scene.add(chair);
-    grid.addBox(x - .85, x + .85, z - .45, z + .45, 'desk'); grid.addBox(x - 1.25, x - .65, z + .85, z + 1.45, 'chair'); }
+    const chair = prop(models.chair, { h: .95 }); chair.position.set(x + .95, 0, z + 1.15); chair.rotation.y = -2.5; scene.add(chair);
+    grid.addBox(x - .85, x + .85, z - .45, z + .45, 'desk'); grid.addBox(x + .65, x + 1.25, z + .85, z + 1.45, 'chair'); }
 
   // Parlante orbitando la sala de audio
   { const l = LESSON_ORDER[LESSON_INDEX.audio]; const c = roomCenter(l.col, l.row); const m = prop(models.speaker, { h: .7 });
