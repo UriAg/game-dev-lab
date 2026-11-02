@@ -38,6 +38,27 @@ function floorText(text, w = 2, col = '#ffd34d') {
   m.position.y = .03; return m;
 }
 
+// Nota adhesiva de Juli, escrita a mano. Es chica a propósito: se lee recién de cerca.
+function note(text, w = .28) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w), new THREE.MeshBasicNodeMaterial({ map: t, color: '#d9d9d9' }));
+  m.rotation.z = (Math.random() - .5) * .1;
+  const draw = () => {
+    const g = cv.getContext('2d'); g.fillStyle = '#f2d75e'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#e4c94f'; g.fillRect(0, 0, 256, 34);
+    let size = 46, lines;
+    do { size -= 2; g.font = `600 ${size}px Caveat, "Segoe Print", cursive`; lines = []; let line = '';
+      for (const word of text.split(' ')) { if (line && g.measureText(line + word).width > 224) { lines.push(line.trim()); line = ''; } line += word + ' '; }
+      lines.push(line.trim());
+    } while ((lines.length + 1) * size * 1.02 > 210 && size > 16);
+    g.fillStyle = '#3a3018'; g.textAlign = 'left'; lines.forEach((l, i) => g.fillText(l, 16, 36 + size * (i + .9) * 1.02));
+    g.textAlign = 'right'; g.fillText('—Juli', 240, 36 + size * (lines.length + .9) * 1.02); t.needsUpdate = true;
+  };
+  m.write = (next) => { text = next; draw(); };
+  draw(); document.fonts?.load('600 40px Caveat').then(draw, () => {});
+  return m;
+}
+
 // Flecha plana del piso cuyo largo y dirección cambian en vivo.
 function makeArrow(col) {
   const g = new THREE.Group(), m = new THREE.MeshBasicNodeMaterial({ color: col }), HEAD = .3;
@@ -255,6 +276,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   // Lobby: tu propia pantalla separada en las tres capas que la forman.
   { const p = pedestal('stack'), c = center('stack'); let tick = 0;
     const stats = screen(c.x + 2.6, 1.05, c.z - 4.8, 0, 2.4);
+    const n1 = note('Si el número naranja casi no sube, todo anda bien. Lo miro cada mañana, como quien mira las plantas.'); n1.position.set(c.x + 3.55, 1.27, c.z - 4.7); scene.add(n1);
+    let tunnelT = 0;
     // Primera consigna: flota al lado del aro y se va cuando abrís el pizarrón.
     const hintCv = document.createElement('canvas'); hintCv.width = 720; hintCv.height = 300; { const g = hintCv.getContext('2d'); g.fillStyle = '#ffd34d'; g.font = '700 58px "Chakra Petch", sans-serif'; g.textAlign = 'center'; ['Caminá hasta el aro,', 'apuntá con la mira', 'y apretá E'].forEach((t, i) => g.fillText(t, 300, 70 + i * 82)); g.beginPath(); g.moveTo(628, 90); g.lineTo(628, 190); g.lineTo(704, 140); g.closePath(); g.fill(); g.fillRect(596, 124, 34, 32); }
     const hintTex = new THREE.CanvasTexture(hintCv); hintTex.colorSpace = THREE.SRGBColorSpace; const hintMat = new THREE.MeshBasicNodeMaterial({ map: hintTex, transparent: true, depthWrite: false }), hint = new THREE.Mesh(new THREE.PlaneGeometry(2.1, .875), hintMat); hint.position.set(c.x - 3.3, 1.45, c.z - 2.6); scene.add(hint); let hintGone = false;
@@ -284,7 +307,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
       grab(game) { if (game.frame % 10) return; const src = gameCanvas(); if (!src) return; const g = world.g; g.drawImage(src, 0, 0, world.w, world.h); if (closed < .5) bar(world, 0, '2. Three.js: el mundo 3D', '#b7a9ff', 'Salas, luces y modelos, redibujados 60 veces por segundo.'); world.t.needsUpdate = true;
         const u = ui.g, mini = document.querySelector('canvas.mini'); u.clearRect(0, 0, 1024, 576); if (out[2] > .02) { u.fillStyle = `rgba(7,12,20,${.9 * out[2]})`; u.fillRect(0, 0, 1024, 576); } if (mini) { u.fillStyle = 'rgba(7,12,20,.8)'; u.fillRect(26, 26, 200, 158); u.drawImage(mini, 34, 34, 184, 142); } u.fillStyle = 'rgba(7,12,20,.8)'; u.fillRect(760, 26, 238, 56); u.fillStyle = '#45d6c4'; u.font = '700 32px "JetBrains Mono", monospace'; u.textAlign = 'left'; u.fillText(`${game.S.fps.value} FPS`, 782, 66); if (closed < .5) bar(ui, 484, '3. Preact: la interfaz', '#45d6c4', 'Menús, textos y este contador, sobre el mundo.'); ui.t.needsUpdate = true; },
       update(dt, t, game) { if (lessonId.value === 'stack') hintGone = true; hintMat.opacity += ((hintGone ? 0 : 1) - hintMat.opacity) * (1 - Math.exp(-dt * 6)); hint.visible = hintMat.opacity > .01; hint.position.y = 1.45 + Math.sin(t * 1.5) * .04;
-        if (step && Math.hypot(game.pos.x - RX, game.pos.z - RZ) > 6.5) step = 0; const ease = 1 - Math.exp(-dt * 6); closed += ((step === 4 ? 1 : 0) - closed) * ease; out.forEach((k, i) => { out[i] += ((step === i + 1 ? 1 : 0) - k) * ease; }); place();
+        if (step && Math.hypot(game.pos.x - RX, game.pos.z - RZ) > 6.5) step = 0;
+        tunnelT = step === 2 ? tunnelT + dt : 0; if (tunnelT > 6) game.once('tunel', 'Te estás viendo verte: es el cuadro que la placa de video acaba de dibujar, adentro de sí mismo.'); const ease = 1 - Math.exp(-dt * 6); closed += ((step === 4 ? 1 : 0) - closed) * ease; out.forEach((k, i) => { out[i] += ((step === i + 1 ? 1 : 0) - k) * ease; }); place();
         if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); g.fillStyle = '#9fb2c9'; g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText('Se explican en la página 6 del pizarrón', 30, 290); }); } };
   }
 
@@ -303,13 +327,17 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     });
     plaque('input', 1.1, -.05, -Math.PI / 4, 'Apretá WASD y mové el mouse: la consola responde con vos.');
     const tint = new THREE.Color(), bars = [], moves = screen(p.x, 1.05, p.z - 3.8, 0, 2.4);
-    ex.input = { update(dt, t, game) { bars.push(game.input.screenX); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); if (!bars.some(Boolean)) { g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Mové el mouse para ver las barras', 20, 165); } g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
+    ex.input = { update(dt, t, game) { if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].every((k) => game.input.keys.has(k))) game.once('wasd', 'W y S se cancelan, A y D también: quedaste quieto con mucha convicción.');
+      bars.push(game.input.screenX); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); if (!bars.some(Boolean)) { g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Mové el mouse para ver las barras', 20, 165); } g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
       const k = 1 - Math.exp(-dt * 25); for (const c in keys) { const on = game.input.keys.has(c); keys[c].position.y += ((on ? .05 : .1) - keys[c].position.y) * k; keys[c].material.color.lerp(tint.set(on ? '#ff9a3c' : offKey), k); } } };
   }
 
   // Yaw: robot que copia tu cámara, con las flechas sin/cos sobre el piso
   { const p = pedestal('yaw'); p.y = 0; const r = robot(); r.position.copy(p); scene.add(r); grid.addBox(p.x - .5, p.x + .5, p.z - .5, p.z + .5, 'robot');
     plaque('yaw', 2.6, 1.3, -Math.PI * .75, 'Girá con el mouse: el logo copia tu cámara y las flechas cambian.');
+    { const c = center('yaw'), ry = -Math.PI * .75, n = note('No es tímido: mira para donde mirás vos. Si lo mirás a él, te da la espalda.', .24); n.position.set(c.x + 2.6 + Math.sin(ry) * .05, .66, c.z + 1.3 + Math.cos(ry) * .05); n.rotation.y = ry; scene.add(n); }
+    // Tres vueltas en menos de 4 segundos marean al logo.
+    const spins = []; let lastYaw = null, dizzy = 0;
     const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d'), mid = 512, col = '#ff5d73';
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 8; for (const R of [490, 360]) { g.beginPath(); g.arc(mid, mid, R, 0, 7); g.stroke(); }
     for (let i = 0; i < 36; i++) { const a = i / 36 * Math.PI * 2, r0 = i % 9 === 0 ? 330 : 440; g.beginPath(); g.moveTo(mid + Math.sin(a) * r0, mid - Math.cos(a) * r0); g.lineTo(mid + Math.sin(a) * 488, mid - Math.cos(a) * 488); g.stroke(); }
@@ -324,6 +352,10 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const place = (n, x, z) => { n.visible = Math.hypot(x, z) > .45; n.position.x = p.x + x; n.position.z = p.z + z; };
     let shown = 0;
     ex.yaw = { update(dt, t, game) { const goal = game.demoYaw ?? game.yaw, turn = Math.atan2(Math.sin(goal - shown), Math.cos(goal - shown)); shown += turn * (1 - Math.exp(-dt * 14)); const y = shown, L = 1.7; r.rotation.y = y + Math.PI;
+      if (lastYaw !== null) spins.push([t, Math.abs(game.yaw - lastYaw)]); lastYaw = game.yaw; while (spins.length && spins[0][0] < t - 4) spins.shift();
+      if (spins.reduce((a, s) => a + s[1], 0) > Math.PI * 6) { spins.length = 0; dizzy = 2.2; game.once('mareo', 'El logo copió tus tres vueltas. Va a necesitar un minuto.'); }
+      dizzy = Math.max(0, dizzy - dt); const w = game.still ? 0 : dizzy / 2.2; r.rotation.z = Math.sin(t * 7) * .22 * w; r.rotation.x = Math.cos(t * 5.3) * .12 * w;
+      if (!game.feel.normalize && game.last.f && game.last.s && game.last.speed > 3.2 * 1.25) game.once('diagonal', 'Vas 41% más rápido. En muchos juegos viejos esto era un truco para llegar antes.');
       const fx = -Math.sin(y) * L, fz = -Math.cos(y) * L;
       f.set(fx, fz); sx.set(fx, 0); cz.set(0, fz);
       place(names.f, fx * 1.15, fz * 1.15); place(names.sx, fx, Math.sign(fz || 1) * -.22); place(names.cz, Math.sign(fx || 1) * -.65, fz); } };
@@ -337,7 +369,9 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const cubes = names.map(([col, n], i) => { const z = p.z + 2.09 + i * .66; const m = new THREE.Mesh(new THREE.BoxGeometry(.5, .3, .36), new THREE.MeshStandardNodeMaterial({ color: col })); m.position.set(cx - 3.9, .16, z); scene.add(m); const lb = floorText(n, 1.7, col); lb.position.set(cx - 3.1, .03, z); lb.rotation.y = Math.PI; scene.add(lb); return { m, x: -3.9, acc: 0 }; });
     plaque('smoothing', 2.6, -.5, -Math.PI * .75, 'Mirá los tres bloques: van al mismo lugar y llegan distinto.');
     let target = 3.9, clock = 0;
-    ex.smoothing = { update(dt) { clock += dt; if (clock > 3.2) { clock = 0; target = -target; }
+    ex.smoothing = { update(dt, t, game) { clock += dt; if (clock > 3.2) { clock = 0; target = -target;
+        // Los bloques no chocan con vos: si estás parado en el carril rojo, te atraviesa.
+        if (Math.abs(game.pos.z - (p.z + 2.09)) < .4 && Math.abs(game.pos.x - cx) < 3.9) game.once('rojo', 'El bloque rojo te atravesó: sin suavizado salta de punta a punta en un solo frame, sin tiempo ni para pedir permiso.'); }
       cubes[0].x = target;
       cubes[1].acc += dt; if (cubes[1].acc > 1 / 15) { cubes[1].acc = 0; cubes[1].x += (target - cubes[1].x) * .2; }
       cubes[2].x += (target - cubes[2].x) * (1 - Math.exp(-dt * 5));
@@ -351,6 +385,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     [[1.7, -2.1], [2.3, -2.1], [1.7, -1.5], [2.3, -1.5]].forEach(([x, z]) => crate(x, z)); crate(2, -1.8, .6);
     [-2.1, -1.5, -.9, -.3].forEach((x) => crate(x, 1.3)); crate(-1.8, 1.3, .6); crate(-.6, 1.3, .6);
     grid.addBox(c0.x + 1.4, c0.x + 2.6, c0.z - 2.4, c0.z - 1.2, 'prop'); grid.addBox(c0.x - 2.4, c0.x, c0.z + 1, c0.z + 1.6, 'prop'); solid(c0.x + 1, c0.x + 1.4, c0.z + .4, c0.z + .8, HEIGHT, '#46587e');
+    { const n = note('Para la grilla sos un punto. No te ofendas: las paredes engordaron 30 cm para que sea justo.'); n.position.set(c0.x + 1.2, 1.55, c0.z + .812); scene.add(n); }
     // Botón junto a la puerta oeste: cierra la puerta sin abrir el panel.
     const button = prop(models.button, { h: .3 }), wallX = doorMesh.position.x + WALL / 2, buttonZ = doorZ + DOOR / 2 + .55, depth = new THREE.Box3().setFromObject(button).getSize(new THREE.Vector3()).x; button.position.set(wallX + depth / 2, 1, buttonZ); scene.add(button);
     let presser = null, pressed = 0, rest = 0; button.traverse((o) => { if (o.material?.name === 'button-presser') presser = o; }); rest = presser.position.x;
@@ -377,8 +412,12 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   }
 
   // A*: un personaje que te persigue con el pathfinding real
-  { const l = LESSON_ORDER[LESSON_INDEX.astar]; const home = roomCenter(l.col, l.row); const r = horror.scene; r.traverse((o) => { o.frustumCulled = false; if (o.material) o.material.metalness = 0; }); r.position.set(home.x - 3.5, 0, home.z + 3.7); r.rotation.y = Math.PI * .75; scene.add(r); ex.keep.push(r);
-    plaque('astar', 3.6, -1.3, .8, 'Movete por la sala: te busca un camino nuevo cada 0,6 segundos.');
+  { const l = LESSON_ORDER[LESSON_INDEX.astar]; const home = roomCenter(l.col, l.row); const r = horror.scene; r.traverse((o) => { o.frustumCulled = false; if (o.material) o.material.metalness = 0; }); r.position.set(home.x - 3.5, 0, home.z + 3.7); r.rotation.order = 'YXZ'; r.rotation.y = Math.PI * .75; scene.add(r); ex.keep.push(r);
+    plaque('astar', 3.6, -1.3, .8, 'Movete por la sala: Estrella te busca un camino nuevo cada 0,6 segundos.');
+    { const n = note('Se llama Estrella, como el asterisco de A*. No muerde. Le puse capucha porque estaba resfriada.'); n.position.set(home.x - 3.412, .8, home.z); n.rotation.y = -Math.PI / 2; scene.add(n); }
+    // Estrella sabe llegar, pero no qué hacer al llegar. Con E se puede charlar con ella.
+    const LINES = [['Saludar', 'Saludaste a Estrella. Te devolvió el saludo un rato después: piensa todo de nuevo cada 0,6 segundos.', .6], ['Preguntar', 'Le preguntaste a dónde va. Señaló los puntitos amarillos: van hasta vos. Siempre van hasta vos.', 0], ['Pedir distancia', 'Le pediste que no te siga. Dice que lo intenta, pero A* es lo único que sabe hacer.', 0], ['Saludar', 'Estrella está contenta. No se nota porque tiene capucha.', 0]];
+    let talks = 0, bowAt = -1, idleT = 0, clock = 0;
     // Muros bajos: tapan el paso pero dejan verla venir.
     const lowWall = '#5d6b5f'; solid(home.x + 1, home.x + 1.4, home.z - 2, home.z + 2, 1.1, lowWall); solid(home.x - 1.8, home.x + 1, home.z + 1.6, home.z + 2, 1.1, lowWall); solid(home.x - 3.4, home.x - 3, home.z - .8, home.z + 1, 1.1, lowWall);
     grid.rebuild();
@@ -389,8 +428,11 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const cellMesh = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, ROOM).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ map: cellTex, transparent: true, opacity: .55 })); cellMesh.position.set(home.x, .024, home.z); scene.add(cellMesh);
     const paintSearch = () => { const g = cells.getContext('2d'), s = grid.lastSearch; g.clearRect(0, 0, 400, 400); if (!s) return; const x0 = l.col * ROOM / CELL, z0 = l.row * ROOM / CELL, w = grid.w, dot = (k, col) => { const x = k % w - x0, z = Math.floor(k / w) - z0; if (x >= 0 && x < 50 && z >= 0 && z < 50) { g.fillStyle = col; g.fillRect(x * 8 + .5, z * 8 + .5, 7, 7); } }; for (const k of s.closed) dot(k, 'rgba(109,179,255,.9)'); for (const k of s.open.keys()) dot(k, 'rgba(92,214,120,.9)'); cellTex.needsUpdate = true; };
     const dummy = new THREE.Object3D(); let path = [], timer = 0, i = 0;
-    ex.astar = { lastCount: 0, always: false, update(dt, t, game) {
-      timer -= dt;
+    ex.astar = { lastCount: 0, always: false, idle: false, head: new THREE.Vector3(),
+      get verb() { return LINES[Math.min(talks, 3)][0]; },
+      talk(game) { const [, text, delay] = LINES[Math.min(talks++, 3)]; game.say(text); bowAt = clock + delay; r.rotation.y = Math.atan2(game.pos.x - r.position.x, game.pos.z - r.position.z); },
+      update(dt, t, game) {
+      timer -= dt; clock = t;
       if (timer <= 0) { timer = .6; const started = performance.now(); path = grid.path(r.position, game.pos) ?? []; ex.astar.lastMs = performance.now() - started; ex.astar.lastCount = path.length; i = 1; paintSearch();
         dots.count = Math.min(120, path.length); path.slice(0, 120).forEach((n, k) => { dummy.position.set(n.x, .05, n.z); dummy.updateMatrix(); dots.setMatrixAt(k, dummy.matrix); }); dots.instanceMatrix.needsUpdate = true; }
       const n = path[Math.min(i + 3, path.length - 1)];
@@ -399,7 +441,11 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
         r.position.x += dx / d * 2.4 * dt; r.position.z += dz / d * 2.4 * dt; r.rotation.y = Math.atan2(dx, dz);
         if (Math.hypot(path[i].x - r.position.x, path[i].z - r.position.z) < .3) i = Math.min(i + 1, path.length - 1); }
       // Al frenar, el peso de la animación baja a 0 y el mixer vuelve solo a la pose de reposo del modelo.
-      runW += ((chasing ? 1 : 0) - runW) * (1 - Math.exp(-dt * 6)); run.setEffectiveWeight(runW); mixer.update(dt * .6); } };
+      runW += ((chasing ? 1 : 0) - runW) * (1 - Math.exp(-dt * 6)); run.setEffectiveWeight(runW); mixer.update(dt * .6);
+      const near = Math.hypot(game.pos.x - r.position.x, game.pos.z - r.position.z); ex.astar.idle = !chasing && near < 2.6; ex.astar.head.set(r.position.x, 1.1, r.position.z);
+      idleT = ex.astar.idle ? idleT + dt : 0; if (idleT > 1.5) game.once('estrella-llega', 'Estrella te alcanzó y se quedó quieta. A* le dice cómo llegar, pero nadie le dijo qué hacer al llegar.');
+      // Reverencia corta: se inclina 0,15 rad y vuelve.
+      const k = (t - bowAt) / .6; r.rotation.x = bowAt >= 0 && k > 0 && k < 1 && !game.still ? .15 * Math.sin(Math.PI * k) : 0; } };
   }
 
   // TSL: esfera con shader programable desde sliders
@@ -431,12 +477,17 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     b.traverse((o) => { if (o.isMesh) { const src = o.material; const m = new THREE.MeshStandardNodeMaterial({ map: src.map, roughness: .45, metalness: .6 }); m.positionNode = floor(positionLocal.div(2).add(.5).mul(steps)).div(steps).sub(.5).mul(2); o.material = m; } });
     const la = label('17,5 MB', 1.5, 'original', '#ff5d73'), lb = label('0,84 MB', 1.5, 'comprimido', '#5cd678');
     la.position.set(plates[0].x - .2, 2.75, 0); lb.position.set(plates[1].x + .2, 2.75, 0); rig.add(la, lb);
+    // Con muy pocos bits, el cartel verde admite que se pasó. Mientras baja el original, su plato avisa que espera.
+    const over = label('0,84 MB', 1.5, 'comprimido de más', '#5cd678'); over.position.copy(lb.position); over.visible = false;
+    const wait = label('Bajando el original…', 1.3, 'pesa 17,5 MB', '#ff5d73'); wait.position.set(plates[0].x, plates[0].y + .45, 0); wait.visible = false; rig.add(over, wait);
     plaque('compression', -.9, 3.3, Math.PI / 2 + .4, 'Bajá los bits en el pizarrón y mirá cómo se deforma el logo de la derecha.');
     // Los carteles giran hacia vos, para leerse desde cualquier lado de la sala.
     const spot = new THREE.Vector3();
     let asked = false;
-    ex.compression = { bits, setBits(n) { steps.value = 2 ** n; }, update(dt, t, game) { for (const l of [la, lb]) { l.getWorldPosition(spot); l.rotation.y = Math.atan2(game.pos.x - spot.x, game.pos.z - spot.z) - rig.rotation.y; }
-      if (asked) return; asked = true; robotRaw().then((src) => { const a = robot(src); a.scale.setScalar(.42); a.position.set(plates[0].x, plates[0].y, 0); rig.add(a); }); } };
+    ex.compression = { bits, setBits(n) { steps.value = 2 ** n; lb.visible = n > 4; over.visible = n <= 4; }, update(dt, t, game) { for (const l of [la, lb, over, wait]) { l.getWorldPosition(spot); l.rotation.y = Math.atan2(game.pos.x - spot.x, game.pos.z - spot.z) - rig.rotation.y; }
+      if (asked) return; asked = true; const slow = setTimeout(() => { wait.visible = true; }, 300);
+      robotRaw().then((src) => { clearTimeout(slow); wait.visible = false; const a = robot(src); a.scale.setScalar(.42); a.position.set(plates[0].x, plates[0].y, 0); rig.add(a);
+        if (game.current?.id === 'compression') game.once('original', 'Llegó el original: 17,5 MB. El comprimido estaba acá desde el principio.'); }); } };
   }
 
   // Workers: este cubo gira en el hilo principal, así que se congela si lo bloqueás.
@@ -459,8 +510,12 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
       const cap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .1, .06, 24), new THREE.MeshBasicNodeMaterial({ color: col })); cap.position.set(dx, .06, -.07); desk.add(cap);
       const tag = label(name, .52, '', col); tag.rotation.x = -Math.PI / 2; tag.position.set(dx, .03, .17); desk.add(tag);
       cap.updateWorldMatrix(true, false); return { cap, verb, run, push: 0, pos: cap.getWorldPosition(new THREE.Vector3()) }; });
+    const warn = note('No apretar: congela todo.', .17); warn.rotation.x = -Math.PI / 2; warn.position.set(-.47, .028, -.03); desk.add(warn); let freezes = 0;
     ex.workers = { stand, // El trabajo arranca un instante después, para que el botón llegue a verse hundido antes de que se congele todo.
-      push(b, game) { b.push = 1; setTimeout(() => { lesson.actions[b.run](params); game.say(params.log); }, 90); },
+      push(b, game) { b.push = 1; setTimeout(() => { lesson.actions[b.run](params); game.say(params.log);
+        if (b.run !== 'runMain') return; freezes++;
+        if (freezes === 1) warn.write('Te dije. (Estuvo bueno, ¿no?)');
+        if (freezes === 3) setTimeout(() => game.say('Tercera vez. Ya no es un experimento, es un pasatiempo.'), 2800); }, 90); },
       update(dt, t, game) { m.rotation.x = t * 1.2; m.rotation.y = t * 1.8; const busy = !!params.busy; led.color.set(busy ? '#ff9a3c' : '#2a8f86'); for (const b of stand) { b.push *= Math.exp(-dt * 6); b.cap.position.y = .06 - b.push * .03; }
       pulses.forEach((q, i) => { q.visible = busy; q.position.lerpVectors(from, to, (t * .6 + i / 6) % 1); });
       history.push(dt * 1000); if (history.length > 100) history.shift();
@@ -498,10 +553,32 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const paint = () => { const n = count(); gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '700 56px "JetBrains Mono", monospace'; ['> tu prompt', `> ${n} de ${switches.length} técnicas`, '> apretá E: copiar'].forEach((t, i) => gc.fillText(t, 50, 110 + i * 110)); tex.needsUpdate = true;
       paintBoard();
       big.draw((g, w) => { g.fillStyle = '#7dffb0'; g.font = '700 32px "Chakra Petch", sans-serif'; g.fillText(`Tu prompt: ${n} de ${switches.length} técnicas`, 24, 46); g.font = '22px "IBM Plex Sans", sans-serif'; switches.forEach((s, i) => { g.fillStyle = lesson.params[s.key] ? s.tint : '#3a4560'; g.fillText(s.name, 24 + (i % 2) * 240, 92 + Math.floor(i / 2) * 42); }); }); };
-    ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), switches, flip(s, game) { lesson.params[s.key] = !lesson.params[s.key]; game.S.paramsRev.value++; game.sound.blip(660); }, deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Prompt copiado. Terminaste el recorrido: pegalo en tu IA'); },
-      update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
+    // Lo que aparece al copiar: la última nota de Juli en el monitor y una taza de café recién servida.
+    // La nota va pegada en la esquina inferior derecha de la pantalla, que quedó libre.
+    let glass = null; monitor.updateMatrixWorld(true); monitor.traverse((o) => { if (o.material?.name === 'Screen') glass = o; });
+    const sb = new THREE.Box3().setFromObject(glass ?? monitor), last = note('Fui a buscar un café y tardé un poco. Si llegaste hasta acá, el escritorio es tuyo. Saludos a Estrella.', .24);
+    last.material.transparent = true; last.material.opacity = 0; last.visible = false; last.position.set(sb.max.x - .16, sb.min.y + .15, sb.max.z + .006); scene.add(last);
+    const mug = new THREE.Group(), china = new THREE.MeshStandardNodeMaterial({ color: '#e9e4da', roughness: .4 });
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(.042, .036, .1, 24), china); cup.position.y = .05;
+    const coffee = new THREE.Mesh(new THREE.CircleGeometry(.037, 24).rotateX(-Math.PI / 2), new THREE.MeshStandardNodeMaterial({ color: '#3b2416', roughness: .2 })); coffee.position.y = .092;
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(.026, .007, 8, 16, Math.PI * 1.2).rotateZ(-Math.PI * .6), china); handle.position.set(.045, .052, 0);
+    const steamMat = new THREE.MeshBasicNodeMaterial({ color: '#ffffff', transparent: true, opacity: .4, depthWrite: false }), steam = [0, 1, 2].map((i) => { const s = new THREE.Mesh(new THREE.SphereGeometry(.014, 8, 8), steamMat.clone()); mug.add(s); return s; });
+    mug.add(cup, coffee, handle); mug.position.set(x - .52, deskH, z + .12); mug.rotation.y = .6; mug.visible = false; scene.add(mug);
+    let found = 0, turned = 0; const CHAIR_FWD = Math.PI; // El asiento del modelo mira hacia -z.
+    ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), switches, flip(s, game) { lesson.params[s.key] = !lesson.params[s.key]; game.S.paramsRev.value++; game.sound.blip(660);
+        if (!count()) game.once('cero', 'Cero técnicas: el prompt dice qué querés, pero no cómo. La IA va a improvisar, y no siempre para bien.'); },
+      deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880);
+        if (found) { game.say('Prompt copiado: pegalo en tu IA'); return; }
+        found = 1; game.say('Prompt copiado: pegalo en tu IA. Terminaste el recorrido, y alguien te dejó algo en el escritorio.'); last.visible = mug.visible = true; mug.scale.setScalar(.01);
+        // La silla se da vuelta hacia vos, como invitándote a sentarte.
+        const a = Math.atan2(game.pos.x - chair.position.x, game.pos.z - chair.position.z) + CHAIR_FWD; chairFrom = chair.rotation.y; chairTo = chairFrom + Math.atan2(Math.sin(a - chairFrom), Math.cos(a - chairFrom)); },
+      update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8);
+        if (!found) return;
+        last.material.opacity = Math.min(1, last.material.opacity + dt / .8); mug.scale.setScalar(mug.scale.x + (1 - mug.scale.x) * (1 - Math.exp(-dt * 8)));
+        turned = game.still ? 1 : Math.min(1, turned + dt / 1.4); const e = turned * turned * (3 - 2 * turned); chair.rotation.y = chairFrom + (chairTo - chairFrom) * e;
+        steam.forEach((s, i) => { const k = game.still ? i / 3 : (t * .5 + i / 3) % 1; s.position.set(Math.sin(k * 6 + i) * .012, .11 + k * .16, 0); s.scale.setScalar(.7 + k * 1.3); s.material.opacity = .35 * Math.sin(Math.PI * k); }); } };
     // La silla quedó corrida y girada, como si alguien se acabara de levantar.
-    const chair = prop(models.chair, { h: .95 }); chair.position.set(x + .95, 0, z + 1.15); chair.rotation.y = -2.5; scene.add(chair);
+    const chair = prop(models.chair, { h: .95 }); chair.position.set(x + .95, 0, z + 1.15); chair.rotation.y = -2.5; scene.add(chair); let chairFrom = 0, chairTo = 0;
     grid.addBox(x - .85, x + .85, z - .45, z + .45, 'desk'); grid.addBox(x + .65, x + 1.25, z + .85, z + 1.45, 'chair'); }
 
   // Parlante orbitando la sala de audio
@@ -520,7 +597,12 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     // El parlante cuelga de un riel en el techo que sigue su órbita.
     const steel = new THREE.MeshStandardNodeMaterial({ color: '#39465f', roughness: .5, metalness: .5 }), rail = new THREE.Mesh(new THREE.TorusGeometry(OR, .035, 8, 64).rotateX(Math.PI / 2), steel), rod = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, 1.5, 8), steel); rail.position.set(c.x + OX, HEIGHT - .06, c.z + OZ); rod.position.y = 1.4; m.add(rod); scene.add(rail);
     plaque('audio', -1.2, .6, -1.9, 'Parate en el aro, apretá M y girá: el sonido cambia de oído.');
-    ex.audio = { pos, center: c, orbit: true, offset: new THREE.Vector2(3, 0), update(dt, t, game) { if (ex.audio.orbit) { ex.audio.offset.set(OX + Math.cos(t * .5) * OR, OZ + Math.sin(t * .5) * OR); } pos.set(c.x + ex.audio.offset.x, 1.15 + Math.sin(t * 2) * .05, c.z + ex.audio.offset.y); m.rotation.y = Math.atan2(c.x + OX - pos.x, c.z + OZ - pos.z) + Math.PI; waves.forEach((r, i) => { const k = (t * .8 + i / 3) % 1; r.scale.setScalar(.8 + k * 1.2); r.position.z = -.3 - k * .7; r.material.opacity = (1 - k) * (game.sound.speakerOn ? .7 : .16); }); } };
+    { const n = note('La goma espuma es un dibujo y la reverb es ruido inventado. Igual suena a sala. No le cuentes a nadie.'); n.position.set(c.x + 4.81, 1.72, c.z - 1.8); n.rotation.y = -Math.PI / 2; scene.add(n); }
+    // La cabeza escucha: sigue al parlante si suena y te mira a vos si está callado. Con un aplauso se sobresalta.
+    const HEAD_FWD = 0; let look = 0;
+    ex.audio = { pos, center: c, orbit: true, offset: new THREE.Vector2(3, 0), update(dt, t, game) {
+      const to = game.sound.speakerOn ? pos : game.pos, goal = Math.atan2(to.x - standX, to.z - standZ) + HEAD_FWD; look += Math.atan2(Math.sin(goal - look), Math.cos(goal - look)) * (1 - Math.exp(-dt * 3)); head.rotation.y = look;
+      head.scale.setScalar(1 + .1 * Math.max(0, 1 - (performance.now() - (game.sound.clapAt ?? -1e9)) / 200)); if (ex.audio.orbit) { ex.audio.offset.set(OX + Math.cos(t * .5) * OR, OZ + Math.sin(t * .5) * OR); } pos.set(c.x + ex.audio.offset.x, 1.15 + Math.sin(t * 2) * .05, c.z + ex.audio.offset.y); m.rotation.y = Math.atan2(c.x + OX - pos.x, c.z + OZ - pos.z) + Math.PI; waves.forEach((r, i) => { const k = (t * .8 + i / 3) % 1; r.scale.setScalar(.8 + k * 1.2); r.position.z = -.3 - k * .7; r.material.opacity = (1 - k) * (game.sound.speakerOn ? .7 : .16); }); } };
   }
 
   // Sala 11: pasarela con tres pisos. Cada uno tiene su sonido, y cada paso deja una huella.
@@ -538,10 +620,13 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     [['metal', -2.6], ['grava', 0], ['alfombra', 2.6]].forEach(([n, x]) => { const t = floorText(n, 1, '#eef3fa'); t.position.set(c.x + x, .03, c.z - 1.75); t.rotation.y = -Math.PI / 2; scene.add(t); });
     plaque('gamefeel', -3.5, -1.7, -.5, 'Cruzá la pasarela: cada piso suena distinto y cada paso deja una huella.');
     const prints = Array.from({ length: 12 }, () => { const m = new THREE.Mesh(new THREE.CircleGeometry(.08, 16).rotateX(-Math.PI / 2).scale(1, 1, 1.9), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: 0 })); m.position.y = .03; scene.add(m); return m; });
-    let next = 0;
+    let next = 0, backSteps = 0, cartFrom = null;
     ex.surfaceAt = (x, z) => { const dx = x - c.x, dz = z - c.z; if (Math.abs(dz) > 1.1 || Math.abs(dx) > 3.9) return null; return dx < -1.3 ? 'metal' : dx < 1.3 ? 'gravel' : 'carpet'; };
-    ex.footprint = (pos, yaw, left) => { const dx = pos.x - c.x, dz = pos.z - c.z; if (Math.abs(dx) > 5 || Math.abs(dz) > 5) return; const m = prints[next++ % prints.length], s = left ? -.12 : .12; m.position.x = pos.x + Math.cos(yaw) * s; m.position.z = pos.z - Math.sin(yaw) * s; m.rotation.y = yaw; m.material.opacity = .85; };
-    ex.gamefeel = { update(dt) { for (const m of prints) m.material.opacity *= Math.exp(-dt * .5); } };
+    ex.footprint = (pos, yaw, left, back, game) => { const dx = pos.x - c.x, dz = pos.z - c.z; if (Math.abs(dx) > 5 || Math.abs(dz) > 5) return;
+      backSteps = back && ex.surfaceAt(pos.x, pos.z) ? backSteps + 1 : 0; if (backSteps >= 3) game.once('moonwalk', 'Caminás para atrás y las huellas miran para adelante: se orientan con tu cámara, no con tus pasos.'); const m = prints[next++ % prints.length], s = left ? -.12 : .12; m.position.x = pos.x + Math.cos(yaw) * s; m.position.z = pos.z - Math.sin(yaw) * s; m.rotation.y = yaw; m.material.opacity = .85; };
+    ex.gamefeel = { update(dt, t, game) { for (const m of prints) m.material.opacity *= Math.exp(-dt * .5);
+      // Con todo el game feel apagado, después de 4 metros llega la comparación.
+      const f = game.feel; if (f.smooth || f.bob || f.roll || f.steps) cartFrom = null; else { cartFrom ??= game.walked; if (game.walked - cartFrom > 4) game.once('carrito', 'Sin game feel te movés como un carrito de supermercado con una cámara arriba. Prendé los toggles de a uno.'); } } };
   }
 
   // Interacciones con E que no abren un pizarrón.
@@ -550,6 +635,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   // Devuelve qué se puede accionar con la mira en este momento, o null. El botón solo cuenta desde su lado de la pared.
   ex.target = (game) => {
     if ((game.pos.x > ex.doorButton.pos.x - .2 && game.aimsAt(ex.doorButton.pos, .3, 2.3)) || game.aimsAt(doorAim, DOOR / 2, 2.8)) return { verb: ex.collision.doorClosed ? 'Abrir' : 'Cerrar', act: () => toggleDoor(game) };
+    if (game.current?.id === 'astar' && ex.astar.idle && game.aimsAt(ex.astar.head, .6, 2.8)) return { verb: ex.astar.verb, act: () => ex.astar.talk(game) };
     if (game.current?.id === 'stack' && game.aimsAt(ex.stack.aim, 1, 5.5)) return { verb: ex.stack.verb, act: () => ex.stack.next() };
     if (game.current?.id === 'workers') for (const b of ex.workers.stand) if (game.aimsAt(b.pos, .2, 2.4) && !LESSON_ORDER[LESSON_INDEX.workers].params.busy) return { verb: b.verb, act: () => ex.workers.push(b, game) };
     if (game.current?.id === 'prompts') {

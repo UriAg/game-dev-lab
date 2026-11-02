@@ -73,6 +73,7 @@ export class Sound {
   // Sonido corto y seco: al cortarse de golpe deja escuchar la cola de la reverb.
   clap() {
     if (!this.ctx) return;
+    this.clapAt = performance.now(); // La cabeza de la sala 10 se sobresalta con esto.
     const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
     s.buffer = this.noise; f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = .7;
     g.gain.setValueAtTime(.9, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);

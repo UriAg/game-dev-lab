@@ -35,6 +35,7 @@ export class Game {
     this.mirror = null; this.frame = 0; this.minimap = null; this.time = 0; this.roomClock = {};
     this.metrics = {}; this.frameTimes = [];
     this.titleBlend = 1;
+    this.said = new Set(); this.pushT = 0;
     this.still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
@@ -197,7 +198,10 @@ export class Game {
     // Esc no cuenta como gesto del usuario: el mouse se recaptura con el próximo click.
     if (fromEsc) this.say('Hacé click para volver a mirar con el mouse'); else this.input.lock();
   }
-  say(text) { S.notice.value = text; clearTimeout(this.noticeT); this.noticeT = setTimeout(() => { S.notice.value = ''; }, 2600); }
+  // Los avisos largos duran más: unos 55 ms por letra, nunca menos de 2,6 segundos.
+  say(text, ms = Math.max(2600, text.length * 55)) { S.notice.value = text; clearTimeout(this.noticeT); this.noticeT = setTimeout(() => { S.notice.value = ''; }, ms); }
+  // Para los chistes: cada uno sale una sola vez por visita.
+  once(id, text) { if (this.said.has(id)) return false; this.said.add(id); this.say(text); return true; }
   toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
     else document.documentElement.requestFullscreen().catch(() => this.say('El navegador no permitió la pantalla completa'));
@@ -249,7 +253,7 @@ export class Game {
     if (d.y > -.03) return;
     const k = -this.camera.position.y / d.y, x = this.camera.position.x + d.x * k, z = this.camera.position.z + d.z * k;
     this.autoPath = this.grid.path(this.pos, { x, z });
-    if (!this.autoPath) this.say('Ese punto está bloqueado en la grilla'); else { this.say(`A*: camino de ${this.autoPath.length} celdas`); this.autoIndex = 0; }
+    if (!this.autoPath) this.say('Ese punto está bloqueado en la grilla: ahí no llega ni A*'); else { this.say(`A*: camino de ${this.autoPath.length} celdas`); this.autoIndex = 0; }
   }
 
   // ---- Loop ----
@@ -314,14 +318,22 @@ export class Game {
     this.moveResult = this.grid.move(this.pos, this.vel.x * dt, this.vel.z * dt, this.feel.slide);
     const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
     if (moved < 1e-5) this.vel.multiplyScalar(.5);
+    // Empujar algo que no se mueve: a los 2 segundos, la grilla opina. Si insistís tres minutos después, otra vez.
+    this.pushT = (f || s) && !this.autoPath && moved < 1e-5 ? this.pushT + dt : 0;
+    if (this.pushT > 2) {
+      if (this.once('wall', 'Eso no se va a mover: para la grilla es un 1, y los unos son muy tercos.')) this.wallAt = this.time;
+      else if (this.time - this.wallAt > 180) this.once('wall2', 'Seguís empujando. Respeto la constancia.');
+    }
     this.last = { f, s, dirX, dirZ, speed: moved / Math.max(dt, .001) };
     this.walked += moved; this.stride += moved; this.bob += moved;
-    if (this.stride >= STRIDE) { this.stride -= STRIDE; this.leftFoot = !this.leftFoot; this.stepFlash = this.time; if (this.feel.steps) { this.sound.footstep(this.leftFoot, sprint, this.world.exhibits.surfaceAt(this.pos.x, this.pos.z)); this.world.exhibits.footprint(this.pos, this.yaw, this.leftFoot); } }
+    if (this.stride >= STRIDE) { this.stride -= STRIDE; this.leftFoot = !this.leftFoot; this.stepFlash = this.time; if (this.feel.steps) { this.sound.footstep(this.leftFoot, sprint, this.world.exhibits.surfaceAt(this.pos.x, this.pos.z)); this.world.exhibits.footprint(this.pos, this.yaw, this.leftFoot, f < 0, this); } }
   }
 
   updateRoom() {
     const r = roomAt(this.pos.x, this.pos.z);
     if (r && r !== this.current) {
+      if (this.current?.id === 'astar') this.leftAstar = true;
+      else if (r.id === 'astar' && this.leftAstar) this.once('estrella-espera', 'Estrella te esperó exactamente donde la dejaste: el reloj de esta sala se para cuando te vas.');
       this.current = r; S.roomName.value = r.title; showRoomsAround(this.world, r); this.roomLight.intensity = 14;
       const c = roomCenter(r.col, r.row); this.roomLight.position.set(c.x, 2.3, c.z); this.roomLight.color.set(r.color).lerp(new THREE.Color('#fff'), .65);
       const tint = this.roomLight.color;

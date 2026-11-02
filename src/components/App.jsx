@@ -149,9 +149,9 @@ function Menu() {
   const here = game?.current ? LESSON_INDEX[game.current.id] : 0;
   const main = !start
     ? { label: 'Seguir caminando', run: () => game.begin(), hint: '' }
-    : seen === 0 ? { label: 'Entrar al laboratorio', run: () => game.begin(), hint: 'Doce salas para recorrer. En cada una, un pizarrón explica cómo se resuelve una parte de un juego 3D, y después lo probás caminando.' }
+    : seen === 0 ? { label: 'Entrar al laboratorio', run: () => game.begin(), hint: 'Doce salas para recorrer. En cada una, un pizarrón explica cómo se resuelve una parte de un juego 3D, y después lo probás caminando. Quien arma el laboratorio salió un momento y dejó notas pegadas por ahí.' }
     : next ? { label: `Seguir en la sala ${nn(LESSON_INDEX[next.id])}`, run: () => game.teleport(next.id), hint: `${next.title}. ${next.tagline}` }
-    : { label: 'Volver al laboratorio', run: () => game.begin(), hint: 'Ya pasaste por las doce salas. Podés recorrerlas de nuevo cuando quieras.' };
+    : { label: 'Volver al laboratorio', run: () => game.begin(), hint: 'Ya pasaste por las doce salas. Podés recorrerlas de nuevo cuando quieras: Estrella sigue esperando donde la dejaste.' };
   const open = (v, e) => { back.current = e.currentTarget.dataset.key; setView(v); };
   const nav = (key, text) => ({ 'data-nav': key, onFocus: () => setHint(text), onPointerEnter: (e) => e.currentTarget.focus({ preventScroll: true }) });
 
