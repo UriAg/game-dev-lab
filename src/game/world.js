@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { uniform, positionLocal, normalLocal, sin, floor, fract, step, mix, color, vertexColor, screenCoordinate } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { OccupancyGrid } from './grid.js';
-import { uiStats } from './state.js';
+import { uiStats, lessonId } from './state.js';
 import { LESSON_ORDER, LESSON_INDEX } from '../lessons/index.js';
 
 export const ROOM = 10, COLS = 4, ROWS = 3, HEIGHT = 3.2, WALL = .3, CELL = .2, PLAYER_RADIUS = .3;
@@ -36,14 +36,6 @@ function floorText(text, w = 2, col = '#ffd34d') {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 160 / 1024).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ map: t, transparent: true, depthWrite: false }));
   m.position.y = .03; return m;
-}
-
-// Flecha plana pintada en el piso, de un punto a otro.
-function floorArrow(x0, z0, x1, z1, col) {
-  const L = Math.hypot(x1 - x0, z1 - z0), s = new THREE.Shape();
-  s.moveTo(-.09, 0); s.lineTo(.09, 0); s.lineTo(.09, L - .4); s.lineTo(.26, L - .4); s.lineTo(0, L); s.lineTo(-.26, L - .4); s.lineTo(-.09, L - .4); s.closePath();
-  const m = new THREE.Mesh(new THREE.ShapeGeometry(s).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: col }));
-  m.position.set(x0, .03, z0); m.rotation.y = Math.atan2(x0 - x1, z0 - z1); return m;
 }
 
 // Flecha plana del piso cuyo largo y dirección cambian en vivo.
@@ -270,10 +262,12 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
       const lb = label(a, 1.6, b, col); lb.position.set(1.6, .4 + i * .45, .15); lb.rotation.y = -Math.PI / 6; group.add(lb); parts.push([s, lb, i]);
     });
     scene.add(group);
-    const stats = screen(p.x, 1.25, p.z - 3.8, 0, 1.3); let spread = 0, tick = 0;
-    const c = center('stack'), hintA = floorText('Caminá hasta el aro,', 2.2), hintB = floorText('apuntá con la mira y apretá E', 3); hintA.position.set(c.x + .4, .03, c.z + 1.3); hintB.position.set(c.x + .4, .03, c.z + 1.68); scene.add(hintA, hintB, floorArrow(c.x + .1, c.z + .85, c.x - .7, c.z - 1.4, '#ffd34d'));
+    const stats = screen(p.x, 1.05, p.z - 3.8, 0, 2.4); let spread = 0, tick = 0;
+    // Primera consigna: flota al lado del aro y se va cuando abrís el pizarrón.
+    const c = center('stack'), hintCv = document.createElement('canvas'); hintCv.width = 720; hintCv.height = 300; { const g = hintCv.getContext('2d'); g.fillStyle = '#ffd34d'; g.font = '700 58px "Chakra Petch", sans-serif'; g.textAlign = 'center'; ['Caminá hasta el aro,', 'apuntá con la mira', 'y apretá E'].forEach((t, i) => g.fillText(t, 300, 70 + i * 82)); g.beginPath(); g.moveTo(628, 90); g.lineTo(628, 190); g.lineTo(704, 140); g.closePath(); g.fill(); g.fillRect(596, 124, 34, 32); }
+    const hintTex = new THREE.CanvasTexture(hintCv); hintTex.colorSpace = THREE.SRGBColorSpace; const hintMat = new THREE.MeshBasicNodeMaterial({ map: hintTex, transparent: true, depthWrite: false }), hint = new THREE.Mesh(new THREE.PlaneGeometry(2.1, .875), hintMat); hint.position.set(c.x - 3.3, 1.45, c.z - 2.6); scene.add(hint); let hintGone = false;
     plaque('stack', 1.3, .35, -Math.PI / 4, 'Acercate: las capas se separan y muestran qué hay debajo.');
-    ex.stack = { update(dt, t, game) { group.children.forEach((c, i) => { if (i < 3 * 2 && c.geometry.type === 'BoxGeometry') c.rotation.y = t * .3; });
+    ex.stack = { update(dt, t, game) { if (lessonId.value === 'stack') hintGone = true; hintMat.opacity += ((hintGone ? 0 : 1) - hintMat.opacity) * (1 - Math.exp(-dt * 6)); hint.visible = hintMat.opacity > .01; hint.position.y = 1.45 + Math.sin(t * 1.5) * .04; group.children.forEach((c, i) => { if (i < 3 * 2 && c.geometry.type === 'BoxGeometry') c.rotation.y = t * .3; });
       const near = Math.hypot(game.pos.x - p.x, game.pos.z - p.z) < 3 ? 1 : 0; spread += (near - spread) * (1 - Math.exp(-dt * 5));
       for (const [s, lb, i] of parts) { s.position.y = .25 + i * .4 + spread * i * .45; lb.position.y = .4 + i * .45 + spread * i * .45; }
       if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); g.fillStyle = '#9fb2c9'; g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText('Se explican en la página 6 del pizarrón', 30, 290); }); } };
@@ -350,7 +344,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     let presser = null, pressed = 0, rest = 0; button.traverse((o) => { if (o.material?.name === 'button-presser') presser = o; }); rest = presser.position.x;
     ex.doorButton = { pos: new THREE.Vector3(wallX + depth, 1.15, buttonZ), press() { pressed = 1; } };
     // Tu celda y tu radio sobre la grilla: el jugador es un punto y los obstáculos crecen 30 cm.
-    const yellow = new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: .9, depthWrite: false }), myCell = new THREE.Mesh(new THREE.PlaneGeometry(CELL, CELL).rotateX(-Math.PI / 2), yellow), myRadius = new THREE.Mesh(new THREE.RingGeometry(PLAYER_RADIUS - .02, PLAYER_RADIUS, 32).rotateX(-Math.PI / 2), yellow); myCell.position.y = myRadius.position.y = .03; scene.add(myCell, myRadius); ex.keep.push(myCell, myRadius);
+    const yellow = new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: .9, depthWrite: false }), myCell = new THREE.Mesh(new THREE.PlaneGeometry(CELL, CELL).rotateX(-Math.PI / 2), yellow), myRadius = new THREE.Mesh(new THREE.RingGeometry(PLAYER_RADIUS - .02, PLAYER_RADIUS, 32).rotateX(-Math.PI / 2), yellow); myCell.position.set(c0.x, .03, c0.z); myRadius.position.set(c0.x, .03, c0.z); scene.add(myCell, myRadius);
     grid.rebuild();
     const cv = document.createElement('canvas'); cv.width = cv.height = 50 * 8;
     const tex = new THREE.CanvasTexture(cv); tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
