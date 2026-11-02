@@ -33,3 +33,4 @@ Estos modelos no pueden usarse si el sitio pasa a tener fines comerciales. Modif
 ## Pendientes de verificar antes de publicar
 
 - Textura de piso Poliigon WoodFloorAsh 4186: revisar los términos de Poliigon.
+- Modelo del logo de Claude (salas 3 y 8): falta registrar autor, fuente y licencia, y confirmar que se puede usar la marca.

@@ -239,7 +239,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.PlaneGeometry(w * .93, w * .54), new THREE.MeshBasicNodeMaterial({ map: tex })); m.position.set(0, w * .3, Math.max(.05, w * .03)); tv.add(m);
     const g = cv.getContext('2d'); return { draw(fn) { g.fillStyle = '#07101c'; g.fillRect(0, 0, cv.width, cv.height); fn(g, cv.width, cv.height); tex.needsUpdate = true; } }; };
   const pedestal = (id) => { const l = LESSON_ORDER[LESSON_INDEX[id]], [dx, dz] = pieceOffset(id), p = roomCenter(l.col, l.row).add(new THREE.Vector3(dx, .5, dz)); if (!pedestals.has(id)) { pedestals.add(id); fixture(scene, p.x, p.z, l.color); } return p; };
-  const robot = (src = robotOpt) => { const m = src.clone(); m.traverse((o) => { o.frustumCulled = true; }); return m; };
+  const robot = (src = robotOpt) => { const m = prop({ scene: src }, { h: 1.1 }); m.traverse((o) => { o.frustumCulled = true; }); return m; };
   const ex = { keep: [] };
   const center = (id) => { const l = LESSON_ORDER[LESSON_INDEX[id]]; return roomCenter(l.col, l.row); };
   // Atril con la consigna de la sala. ry gira hacia dónde mira la placa: 0 es sur, PI es norte.
@@ -302,8 +302,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   }
 
   // Yaw: robot que copia tu cámara, con las flechas sin/cos sobre el piso
-  { const p = pedestal('yaw'); p.y = 0; const r = robot(); r.position.copy(p); scene.add(r); grid.addBox(p.x - .2, p.x + .2, p.z - .2, p.z + .2, 'robot');
-    plaque('yaw', 2.6, 1.3, -Math.PI * .75, 'Girá con el mouse: el robot copia tu cámara y las flechas cambian.');
+  { const p = pedestal('yaw'); p.y = 0; const r = robot(); r.position.copy(p); scene.add(r); grid.addBox(p.x - .5, p.x + .5, p.z - .5, p.z + .5, 'robot');
+    plaque('yaw', 2.6, 1.3, -Math.PI * .75, 'Girá con el mouse: el logo copia tu cámara y las flechas cambian.');
     const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d'), mid = 512, col = '#ff5d73';
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 8; for (const R of [490, 360]) { g.beginPath(); g.arc(mid, mid, R, 0, 7); g.stroke(); }
     for (let i = 0; i < 36; i++) { const a = i / 36 * Math.PI * 2, r0 = i % 9 === 0 ? 330 : 440; g.beginPath(); g.moveTo(mid + Math.sin(a) * r0, mid - Math.cos(a) * r0); g.lineTo(mid + Math.sin(a) * 488, mid - Math.cos(a) * 488); g.stroke(); }
@@ -423,9 +423,9 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const b = robot(); b.scale.setScalar(.42); b.position.set(plates[1].x, plates[1].y, 0); rig.add(b);
     const steps = uniform(16384);
     b.traverse((o) => { if (o.isMesh) { const src = o.material; const m = new THREE.MeshStandardNodeMaterial({ map: src.map, roughness: .45, metalness: .6 }); m.positionNode = floor(positionLocal.div(2).add(.5).mul(steps)).div(steps).sub(.5).mul(2); o.material = m; } });
-    const la = label('4,13 MB', 1.5, 'original', '#ff5d73'), lb = label('1,11 MB', 1.5, 'comprimido', '#5cd678');
+    const la = label('17,5 MB', 1.5, 'original', '#ff5d73'), lb = label('0,84 MB', 1.5, 'comprimido', '#5cd678');
     la.position.set(plates[0].x - .2, 2.75, 0); lb.position.set(plates[1].x + .2, 2.75, 0); rig.add(la, lb);
-    plaque('compression', -.9, 3.3, Math.PI / 2 + .4, 'Bajá los bits en el pizarrón y mirá cómo se deforma el robot de la derecha.');
+    plaque('compression', -.9, 3.3, Math.PI / 2 + .4, 'Bajá los bits en el pizarrón y mirá cómo se deforma el logo de la derecha.');
     // Los carteles giran hacia vos, para leerse desde cualquier lado de la sala.
     const spot = new THREE.Vector3();
     let asked = false;

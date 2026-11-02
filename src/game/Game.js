@@ -67,10 +67,10 @@ export class Game {
     S.loadStatus.value = 'Decodificando modelos meshopt';
     const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     const t1 = performance.now();
-    const opt = (await gltf.loadAsync('/assets/robot.opt.glb')).scene;
+    const opt = (await gltf.loadAsync('/assets/claude.opt.glb')).scene;
     this.metrics.optLoad = performance.now() - t1;
-    // El robot sin comprimir solo se usa en la sala 8: se baja recién al entrar.
-    const loadRaw = async () => { const t2 = performance.now(), raw = (await gltf.loadAsync('/assets/robot.raw.glb')).scene; this.metrics.rawLoad = performance.now() - t2; return raw; };
+    // El modelo sin comprimir solo se usa en la sala 8: se baja recién al entrar.
+    const loadRaw = async () => { const t2 = performance.now(), raw = (await gltf.loadAsync('/assets/claude.raw.glb')).scene; this.metrics.rawLoad = performance.now() - t2; return raw; };
     const horror = await gltf.loadAsync('/assets/horror.opt.glb');
     const names = ['chair', 'table', 'cpu', 'keyboard', 'monitor', 'speaker', 'mouse', 'tv', 'head', 'crate', 'rack', 'button'];
     const models = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await gltf.loadAsync(`/assets/${n}.opt.glb`)])));

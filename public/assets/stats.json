@@ -10,11 +10,13 @@
     "vramBC7": 1398101
   },
   "model": {
-    "triangles": 31744,
-    "vertices": 95232,
-    "geometryRaw": 3428352,
-    "rawGlb": 4134880,
-    "optGlb": 1105512,
-    "geometryOpt": 962395
+    "triangles": 98140,
+    "vertices": 55405,
+    "geometryRaw": 2952960,
+    "rawGlb": 17477072,
+    "optGlb": 839120,
+    "geometryOpt": 769072,
+    "textureRaw": 14524112,
+    "textureOpt": 70048
   }
 }
