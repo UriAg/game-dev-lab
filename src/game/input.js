@@ -4,7 +4,7 @@ export class Input {
     this.el = el;
     this.keys = new Set();
     this.lastCode = '-'; this.lastKey = '-';
-    this.dx = 0; this.dy = 0; this.meterX = 0; // meterX: píxeles acumulados para el gráfico de la sala 2
+    this.dx = 0; this.dy = 0; this.screenX = 0; this.meterX = 0; // meterX: píxeles acumulados para el gráfico de la sala 2
     this.locked = false;
     this.padHeld = new Set();
     this.onLockChange = () => {};
@@ -24,7 +24,7 @@ export class Input {
     document.addEventListener('mousemove', (e) => {
       // Plan B: si el navegador rechaza Pointer Lock, se mira arrastrando con el mouse.
       if (!this.locked && !(e.buttons & 1 && e.target === this.el)) return;
-      this.dx += e.movementX; this.dy += e.movementY; this.meterX += e.movementX;
+      this.dx += e.movementX; this.dy += e.movementY; this.meterX += e.movementX; this.screenX += e.movementX;
     });
   }
   releaseKeys() { this.keys.clear(); }

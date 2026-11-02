@@ -1,7 +1,7 @@
 // Audio espacial con Web Audio. Parámetros del PannerNode:
 // panningModel HRTF, distanceModel inverse, refDistance 1, maxDistance 40, rolloffFactor 1.
 export class Sound {
-  constructor() { this.ctx = null; this.reverbOn = true; this.panning = 'HRTF'; this.speakerOn = true; }
+  constructor() { this.ctx = null; this.reverbOn = true; this.panning = 'HRTF'; this.speakerOn = false; }
 
   init() {
     if (this.ctx) { this.ctx.resume(); return; }
@@ -83,13 +83,14 @@ export class Sound {
     return { dry: rms(this.dryMeter), wet: rms(this.wetMeter) };
   }
 
-  footstep(left, sprint) {
+  footstep(left, sprint, surface) {
     if (!this.ctx) return;
     const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(), p = c.createStereoPanner();
     s.buffer = this.noise; s.playbackRate.value = (sprint ? 1.25 : 1) * (.9 + Math.random() * .2);
-    f.type = 'bandpass'; f.frequency.value = 260 + Math.random() * 120; f.Q.value = .9;
+    f.type = 'bandpass'; const tone = { metal: [1500, 4, 1.3], gravel: [2600, .6, .9], carpet: [170, .8, .7] }[surface] ?? [260 + Math.random() * 120, .9, 1];
+    f.frequency.value = tone[0]; f.Q.value = tone[1];
     p.pan.value = left ? -.15 : .15;
-    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(sprint ? .15 : .1, t + .015);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime((sprint ? .15 : .1) * tone[2], t + .015);
     g.gain.exponentialRampToValueAtTime(.0001, t + .14);
     s.connect(f).connect(g).connect(p); p.connect(this.dry); p.connect(this.stepSend);
     s.start(t, Math.random() * .8, .17);

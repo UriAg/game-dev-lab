@@ -46,6 +46,7 @@ export class OccupancyGrid {
     if (this.blockedCell(goal[0], goal[1])) return null;
     let result = null;
     for (const s of astar(this.w, this.h, (x, z) => this.blockedCell(x, z), start, goal)) result = s;
+    this.lastSearch = result;
     if (!result?.path) return null;
     return result.path.map(([x, z]) => ({ x: (x + .5) * c, z: (z + .5) * c }));
   }

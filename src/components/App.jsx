@@ -67,7 +67,7 @@ function Lesson() {
   }, [i, lesson]);
   return (
     <div class={`lesson ${trying ? 'trying' : ''}`} style={{ '--room': lesson.color }}>
-      <div class="stage"><DemoCanvas lesson={lesson} />{trying && <div class="tryhint">Caminá con WASD. <kbd>Tab</kbd> vuelve a la lección.{lesson.id === 'audio' && <> <kbd>M</kbd> silencia la esfera.</>}</div>}</div>
+      <div class="stage"><DemoCanvas lesson={lesson} />{trying && <div class="tryhint">Caminá con WASD. <kbd>Tab</kbd> vuelve a la lección.{lesson.id === 'audio' && <> <kbd>M</kbd> silencia el parlante.</>}</div>}</div>
       {!trying && <aside class="panel">
         <header><span class="eyebrow">Sala {String(LESSON_INDEX[lesson.id] + 1).padStart(2, '0')}: {lesson.title}</span>
           <div class="dots">{lesson.steps.map((_, k) => <button aria-label={`Paso ${k + 1}`} class={k === i ? 'on' : ''} onClick={() => { S.stepIndex.value = k; }} />)}</div><button class="close" aria-label="Cerrar pizarrón" title="Cerrar (Esc)" onClick={() => game.closeLesson()}>×</button></header>
@@ -130,6 +130,7 @@ function Menu() {
       {ready && <><h3>Ir directo a una sala</h3><div class="rooms">{LESSON_ORDER.map((l, i) => <button style={{ '--room': l.color }} class={S.visited.value.has(l.id) ? 'seen' : ''} onClick={() => game.teleport(l.id)}><i>{String(i + 1).padStart(2, '0')}</i>{l.title}</button>)}</div></>}
       <div class="menufoot"><p class="hint">Para el audio espacial, usá auriculares.</p><FullscreenButton /></div>
       <p class="credit">Este sitio se basó en <a href="https://halloween.dev" target="_blank" rel="noopener noreferrer"><b>The Last Deploy</b></a>, el juego de <b>midudev</b>, para aprender cómo funciona. Todo el crédito de la idea original es suyo. Este es un proyecto de estudio independiente, sin relación oficial con el juego ni con su autor.</p>
+      <p class="credit">Modelos 3D con licencia CC BY 4.0: Office Chair (j.a.m), Industrial Table (Elasta Kristya), Cpu (Lutvi Angreani), Gaming keyboard (ZxTulz), Ultrawide Monitor (dylanheyes), Stage Speaker (Sousinho), Server Racking System (wpanayides), Caja_1 (roberto_herreratec) y Rusty metal floor texture (patspet). Con licencia CC BY-NC: TV Screen (Théo Richard) y Mannequin Head #3 (Switch &amp; Lever). Con licencia CC BY-NC-SA: Mouse - Razer DeathAdder (gimora). Lista completa en CREDITOS.md.</p>
     </div>
   </div>;
 }

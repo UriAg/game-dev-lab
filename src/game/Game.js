@@ -28,7 +28,7 @@ export class Game {
     this.moveResult = 'free'; this.last = { f: 0, s: 0, dirX: 0, dirZ: 0, speed: 0 };
     this.fx = { ao: true, dof: false };
     this.focusDistance = 4;
-    this.mirror = null; this.frame = 0; this.minimap = null; this.time = 0;
+    this.mirror = null; this.frame = 0; this.minimap = null; this.time = 0; this.roomClock = {};
     this.metrics = {}; this.frameTimes = [];
   }
 
@@ -46,31 +46,38 @@ export class Game {
     scene.background = new THREE.Color('#05070c');
     const cam = this.camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, .08, 80);
     cam.rotation.order = 'YXZ';
-    scene.add(new THREE.HemisphereLight('#bcd4ff', '#332a26', 1.5));
-    this.roomLight = new THREE.PointLight('#ffffff', 42, 15, 1.7); this.roomLight.position.set(5, 2.8, 5); scene.add(this.roomLight);
-    this.hand = new THREE.PointLight('#ffd9b0', 5, 7, 1.8); scene.add(this.hand);
+    scene.add(new THREE.HemisphereLight('#bcd4ff', '#332a26', 1));
+    // Luz de relleno baja: los focos marcan el pizarrón y el pedestal, y el resto queda en penumbra.
+    this.roomLight = new THREE.PointLight('#ffffff', 14, 15, 1.7); this.roomLight.position.set(5, 2.8, 5); scene.add(this.roomLight);
+    this.hand = new THREE.PointLight('#ffd9b0', 1.2, 7, 1.8); scene.add(this.hand);
+    const spot = (angle) => { const l = new THREE.SpotLight('#ffffff', 0, 6, angle, .55, 1.6); scene.add(l, l.target); return l; };
+    this.boardSpot = spot(.62); this.pedestalSpot = spot(.42);
 
     S.loadStatus.value = 'Transcodificando textura KTX2';
     const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer);
     this.ktx2 = ktx2;
     const t0 = performance.now();
-    const floor = await ktx2.loadAsync('/assets/panel.ktx2');
-    floor.colorSpace = THREE.SRGBColorSpace;
+    const floor = await ktx2.loadAsync('/assets/floor.ktx2');
     this.metrics.ktx2Load = performance.now() - t0;
+    floor.colorSpace = THREE.SRGBColorSpace;
+    const floorNormal = await ktx2.loadAsync('/assets/floor.normal.ktx2'), floorRough = await ktx2.loadAsync('/assets/floor.rough.ktx2');
+    floorNormal.colorSpace = floorRough.colorSpace = THREE.NoColorSpace;
 
     S.loadStatus.value = 'Decodificando modelos meshopt';
     const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     const t1 = performance.now();
     const opt = (await gltf.loadAsync('/assets/robot.opt.glb')).scene;
     this.metrics.optLoad = performance.now() - t1;
-    const t2 = performance.now();
-    const raw = (await gltf.loadAsync('/assets/robot.raw.glb')).scene;
-    this.metrics.rawLoad = performance.now() - t2;
+    // El robot sin comprimir solo se usa en la sala 8: se baja recién al entrar.
+    const loadRaw = async () => { const t2 = performance.now(), raw = (await gltf.loadAsync('/assets/robot.raw.glb')).scene; this.metrics.rawLoad = performance.now() - t2; return raw; };
     const horror = await gltf.loadAsync('/assets/horror.opt.glb');
+    const names = ['chair', 'table', 'cpu', 'keyboard', 'monitor', 'speaker', 'mouse', 'tv', 'head', 'crate', 'rack'];
+    const models = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await gltf.loadAsync(`/assets/${n}.opt.glb`)])));
+    const metal = { map: await ktx2.loadAsync('/assets/metal.ktx2'), normalMap: await ktx2.loadAsync('/assets/metal.normal.ktx2') }; metal.map.colorSpace = THREE.SRGBColorSpace; metal.normalMap.colorSpace = THREE.NoColorSpace; models.metal = metal;
     this.stats = await (await fetch('/assets/stats.json')).json();
 
     S.loadStatus.value = 'Armando las salas y la grilla de colisión';
-    const world = this.world = buildWorld(scene, floor, opt, raw, horror);
+    const world = this.world = buildWorld(scene, { map: floor, normalMap: floorNormal, roughnessMap: floorRough }, opt, loadRaw, horror, models);
     this.grid = world.grid;
 
     this.pipeline = new THREE.RenderPipeline(renderer);
@@ -101,7 +108,7 @@ export class Game {
         else if (S.mode.value === 'try') this.backToLesson();
         else if (S.mode.value === 'walk' && !this.input.locked) { this.input.releaseKeys(); S.mode.value = 'paused'; }
       }
-      if (e.code === 'KeyE') { if (this.otherBoard()) this.openLesson(this.nearBoard); else if (S.mode.value === 'try') this.backToLesson(); }
+      if (e.code === 'KeyE') { if (S.mode.value === 'walk' && this.world.exhibits.use(this)) return; if (this.otherBoard()) this.openLesson(this.nearBoard); else if (S.mode.value === 'try') this.backToLesson(); }
     });
 
     S.loadStatus.value = 'Compilando shaders';
@@ -174,7 +181,7 @@ export class Game {
   toggleSpeaker() {
     if (this.current?.id !== 'audio') return;
     const p = LESSONS.audio.params; p.sound = !p.sound; this.sound.speakerOn = p.sound; S.paramsRev.value++;
-    this.say(p.sound ? 'Esfera de sonido activada' : 'Esfera de sonido silenciada');
+    this.say(p.sound ? 'Parlante activado' : 'Parlante silenciado');
   }
   // Intensidad 0 a 1,25. focalLength es el rango nítido en metros: con 0,012 queda nítido solo 1,2 cm.
   setDof(i) { this.dofBlur.value = Math.max(.012, 3 * (1 - i)); this.dofBokeh.value = .4 + i; }
@@ -234,9 +241,10 @@ export class Game {
     this.updateWalk(dt, m === 'walk' || m === 'try');
     this.updateRoom();
     this.applyCamera(dt);
-    for (const l of LESSON_ORDER) {
-      if (l.id === 'workers' || (this.current && (l.id === this.current.id))) this.world.exhibits[l.id]?.update(dt, this.time, this);
-    }
+    // Cada sala tiene su propio reloj: al salir se congela, y al volver retoma desde el mismo punto.
+    const room = this.current?.id;
+    if (room) { this.roomClock[room] = (this.roomClock[room] ?? 0) + dt; this.world.exhibits[room]?.update(dt, this.roomClock[room], this); }
+    if (room !== 'input') this.input.screenX = 0;
     this.updateAudio();
     if (this.mirror && this.frame % 2 === 0) this.mirror.tex.needsUpdate = true;
     if (this.onFrame) this.onFrame(dt);
@@ -282,14 +290,18 @@ export class Game {
     if (moved < 1e-5) this.vel.multiplyScalar(.5);
     this.last = { f, s, dirX, dirZ, speed: moved / Math.max(dt, .001) };
     this.walked += moved; this.stride += moved; this.bob += moved;
-    if (this.stride >= STRIDE) { this.stride -= STRIDE; this.leftFoot = !this.leftFoot; this.stepFlash = this.time; if (this.feel.steps) this.sound.footstep(this.leftFoot, sprint); }
+    if (this.stride >= STRIDE) { this.stride -= STRIDE; this.leftFoot = !this.leftFoot; this.stepFlash = this.time; if (this.feel.steps) { this.sound.footstep(this.leftFoot, sprint, this.world.exhibits.surfaceAt(this.pos.x, this.pos.z)); this.world.exhibits.footprint(this.pos, this.yaw, this.leftFoot); } }
   }
 
   updateRoom() {
     const r = roomAt(this.pos.x, this.pos.z);
     if (r && r !== this.current) {
       this.current = r; S.roomName.value = r.title;
-      const c = roomCenter(r.col, r.row); this.roomLight.position.set(c.x, 2.85, c.z); this.roomLight.color.set(r.color).lerp(new THREE.Color('#fff'), .65);
+      const c = roomCenter(r.col, r.row); this.roomLight.position.set(c.x, 2.3, c.z); this.roomLight.color.set(r.color).lerp(new THREE.Color('#fff'), .65);
+      const tint = this.roomLight.color;
+      this.boardSpot.color.copy(tint); this.boardSpot.intensity = 48; this.boardSpot.position.set(c.x - 1, 3.15, c.z - 3.6); this.boardSpot.target.position.set(c.x - 1, 0, c.z - 3.6);
+      this.pedestalSpot.color.copy(tint); const audio = r.id === 'audio', track = r.id === 'smoothing', walk = r.id === 'gamefeel', wide = audio || track || walk || r.id === 'compression', sx = c.x + (audio ? 1.5 : track ? .1 : walk ? 0 : 2.6), sz = c.z + (audio ? 1.8 : track ? 1.75 : walk ? 0 : -1);
+      this.pedestalSpot.intensity = audio || walk ? 90 : this.world.pedestals.has(r.id) ? 80 : 0; this.pedestalSpot.angle = wide ? .78 : .42; this.pedestalSpot.position.set(sx, 3.15, sz); this.pedestalSpot.target.position.set(sx, 0, sz);
     }
     let near = null;
     if (r) {
