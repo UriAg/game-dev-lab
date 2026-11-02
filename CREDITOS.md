@@ -17,7 +17,7 @@ Todos con licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Mod
 | Server Racking System | wpanayides | https://sketchfab.com/3d-models/server-racking-system-6fe2cacf836b4aed96c650b286db5486 | Sala 9 |
 | Wooden Crate Low-poly PBR | MaX3Dd | https://sketchfab.com/3d-models/wooden-crate-low-poly-pbr-f8fb4c96211d475b9370d1c403273fc6 | Sala 5 |
 | Factory Button Model [simple] | joelroyallwest1 | https://sketchfab.com/3d-models/factory-button-model-simple-8aa597ed0e474cd1b94ffb2c8c1405af | Sala 5 |
-| Terrifying Hooded Horror Woman | Purple.Point | Sketchfab (falta el enlace directo) | Sala 6 |
+| Terrifying Hooded Horror Woman | Purple.Point | https://sketchfab.com/3d-models/terrifying-hooded-horror-woman-f59d17be392f4494a5b85d927df48ffd | Sala 6 |
 | Rusty metal floor texture | patspet | https://sketchfab.com/3d-models/rusty-metal-floor-texture-0652ff4830fe44e2bcc6809a9f5f7d6a | Sala 11 (solo la textura) |
 
 ## Modelos con licencia no comercial
@@ -32,5 +32,4 @@ Estos modelos no pueden usarse si el sitio pasa a tener fines comerciales. Modif
 
 ## Pendientes de verificar antes de publicar
 
-- Terrifying Hooded Horror Woman (sala 6): sumar el enlace directo de Sketchfab.
 - Textura de piso Poliigon WoodFloorAsh 4186: revisar los términos de Poliigon.
