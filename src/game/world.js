@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { uniform, positionLocal, normalLocal, uv, time, sin, floor, mix, color, vec3, vertexColor, texture, positionWorld } from 'three/tsl';
+import { uniform, positionLocal, normalLocal, sin, floor, fract, step, mix, color, vertexColor, screenCoordinate } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { OccupancyGrid } from './grid.js';
 import { uiStats } from './state.js';
@@ -7,6 +7,9 @@ import { LESSON_ORDER, LESSON_INDEX } from '../lessons/index.js';
 
 export const ROOM = 10, COLS = 4, ROWS = 3, HEIGHT = 3.2, WALL = .3, CELL = .2, PLAYER_RADIUS = .3;
 export const roomCenter = (col, row) => new THREE.Vector3(col * ROOM + ROOM / 2, 0, row * ROOM + ROOM / 2);
+// Dónde está la pieza central de cada sala, medido desde el centro. Las que no figuran usan DEFAULT_PIECE.
+const DEFAULT_PIECE = [2.6, -1], PIECES = { compression: [-2.2, 1.5], webgpu: [0, 2.8] };
+export const pieceOffset = (id) => PIECES[id] ?? DEFAULT_PIECE;
 
 export function roomAt(x, z) {
   const col = Math.floor(x / ROOM), row = Math.floor(z / ROOM);
@@ -20,22 +23,41 @@ function label(text, w = 2, sub = '', col = '#ff9a3c') {
   g.fillStyle = col; g.font = '700 46px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.fillText(text, 256, sub ? 58 : 80);
   if (sub) { g.fillStyle = '#9fb2c9'; g.font = '30px "IBM Plex Sans", sans-serif'; g.fillText(sub, 256, 104); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicNodeMaterial({ map: t, side: THREE.DoubleSide }));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicNodeMaterial({ map: t }));
   return m;
 }
 
+// Texto pintado en el piso. Sin girar, se lee parado al sur mirando al norte.
+function floorText(text, w = 2, col = '#ffd34d') {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 160;
+  const g = c.getContext('2d'); let size = 104;
+  do { g.font = `700 ${size}px "Chakra Petch", sans-serif`; size -= 4; } while (g.measureText(text).width > 990);
+  g.fillStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 512, 84);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 160 / 1024).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ map: t, transparent: true, depthWrite: false }));
+  m.position.y = .03; return m;
+}
+
+// Flecha plana pintada en el piso, de un punto a otro.
+function floorArrow(x0, z0, x1, z1, col) {
+  const L = Math.hypot(x1 - x0, z1 - z0), s = new THREE.Shape();
+  s.moveTo(-.09, 0); s.lineTo(.09, 0); s.lineTo(.09, L - .4); s.lineTo(.26, L - .4); s.lineTo(0, L); s.lineTo(-.26, L - .4); s.lineTo(-.09, L - .4); s.closePath();
+  const m = new THREE.Mesh(new THREE.ShapeGeometry(s).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: col }));
+  m.position.set(x0, .03, z0); m.rotation.y = Math.atan2(x0 - x1, z0 - z1); return m;
+}
+
+// Flecha plana del piso cuyo largo y dirección cambian en vivo.
 function makeArrow(col) {
-  const g = new THREE.Group();
-  const m = new THREE.MeshBasicNodeMaterial({ color: col });
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, 1, 12).translate(0, .5, 0), m);
-  const head = new THREE.Mesh(new THREE.ConeGeometry(.09, .22, 16).translate(0, .11, 0), m);
+  const g = new THREE.Group(), m = new THREE.MeshBasicNodeMaterial({ color: col }), HEAD = .3;
+  const shaft = new THREE.Mesh(new THREE.PlaneGeometry(.13, 1).translate(0, .5, 0).rotateX(-Math.PI / 2), m);
+  const tip = new THREE.Shape(); tip.moveTo(-.17, 0); tip.lineTo(.17, 0); tip.lineTo(0, HEAD); tip.closePath();
+  const head = new THREE.Mesh(new THREE.ShapeGeometry(tip).rotateX(-Math.PI / 2), m);
   g.add(shaft, head);
-  const up = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3();
-  g.set = (x, z, len) => {
-    const l = len ?? Math.hypot(x, z);
-    g.visible = l > .02; if (!g.visible) return;
-    shaft.scale.y = Math.max(.01, l - .2); head.position.y = Math.max(.01, l - .2);
-    dir.set(x, 0, z).normalize(); g.quaternion.setFromUnitVectors(up, dir);
+  g.set = (x, z) => {
+    const l = Math.hypot(x, z);
+    g.visible = l > .05; if (!g.visible) return;
+    const body = Math.max(.01, l - HEAD); shaft.scale.z = body; head.position.z = -body;
+    g.rotation.y = Math.atan2(-x, -z);
   };
   return g;
 }
@@ -45,16 +67,19 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
   const pieces = [];
   const accent = new THREE.Color(), base = new THREE.Color();
 
-  const box = (x, y, z, sx, sy, sz, col, solid = false) => {
+  const colored = (x, y, z, sx, sy, sz, col) => {
     const g = new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z).toNonIndexed();
     const n = g.attributes.position.count, cols = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) cols.set([col.r, col.g, col.b], i * 3);
     g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    pieces.push(g);
+    return g;
+  };
+  const box = (x, y, z, sx, sy, sz, col, solid = false) => {
+    pieces.push(colored(x, y, z, sx, sy, sz, col));
     if (solid) return grid.addBox(x - sx / 2, x + sx / 2, z - sz / 2, z + sz / 2);
   };
 
-  const W = COLS * ROOM, D = ROWS * ROOM, wallCol = new THREE.Color('#2a3650'), trim = new THREE.Color('#ff9a3c');
+  const W = COLS * ROOM, D = ROWS * ROOM, wallCol = new THREE.Color('#2a3650');
   // Perímetro
   box(W / 2, HEIGHT / 2, 0, W + WALL, HEIGHT, WALL, wallCol, true);
   box(W / 2, HEIGHT / 2, D, W + WALL, HEIGHT, WALL, wallCol, true);
@@ -78,24 +103,13 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
     box(cx, (DOOR_H + HEIGHT) / 2, z, DOOR, HEIGHT - DOOR_H, WALL, wallCol);
   }
 
-  // Racks de servidores contra la pared sur: obstáculos reales para colisión y A*.
-  const ledGeos = [];
   for (const l of LESSON_ORDER) {
-    const c = roomCenter(l.col, l.row);
-    accent.set(l.color);
-    for (let i = 0; i < 0; i++) {
-      const x = c.x - 3.9 + i * 1.5, z = c.z + 4.35;
-      box(x, 1, z, 1.1, 2, .9, base.set('#161e2e'), true);
-      for (let k = 0; k < 7; k++) {
-        const g = new THREE.PlaneGeometry(.75, .05).translate(x, .35 + k * .24, z - .452).rotateY(0);
-        const tmp = new THREE.BoxGeometry(.8, .045, .01).translate(x, .35 + k * .24, z - .455);
-        ledGeos.push(tmp); g.dispose();
-      }
-    }
-    // Marco del pizarrón
-    box(c.x - 1, 1.75, c.z - 4.8, 4.3, 2.7, .08, trim);
-    // Pedestal de la sala
-    if (['stack', 'webgpu', 'compression', 'workers'].includes(l.id)) box(c.x + 2.6, .25, c.z - 1, 1.5, .5, 1.5, base.set('#46587e'), true);
+    const c = roomCenter(l.col, l.row), [px, pz] = pieceOffset(l.id);
+    // Marco del pizarrón, del color de la sala
+    box(c.x - 1, 1.75, c.z - 4.8, 4.3, 2.7, .08, accent.set(l.color));
+    // Pedestales de la sala
+    if (l.id === 'webgpu') for (const dx of [-2.6, 0, 2.6]) box(c.x + dx, .25, c.z + pz, 1.1, .5, 1.1, base.set('#46587e'), true);
+    if (['stack', 'compression', 'workers'].includes(l.id)) box(c.x + px, .25, c.z + pz, 1.5, .5, 1.5, base.set('#46587e'), true);
   }
 
   const shell = mergeGeometries(pieces);
@@ -104,11 +118,6 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
   shellMat.colorNode = vertexColor();
   const shellMesh = new THREE.Mesh(shell, shellMat);
   scene.add(shellMesh);
-
-  const ledMat = new THREE.MeshBasicNodeMaterial();
-  const blink = sin(time.mul(2.4).add(positionWorld.x.mul(7)).add(positionWorld.y.mul(23))).mul(.5).add(.5);
-  ledMat.colorNode = mix(color('#123a44'), color('#45d6c4'), blink);
-  if (ledGeos.length) scene.add(new THREE.Mesh(mergeGeometries(ledGeos), ledMat));
 
   // Piso y techo. El piso usa la textura KTX2 real del pipeline.
   for (const t of Object.values(floorMaps)) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(COLS * 6, ROWS * 6); t.anisotropy = 8; }
@@ -120,14 +129,28 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
   scene.add(ceil);
   for (const l of LESSON_ORDER) { const c = roomCenter(l.col, l.row); fixture(scene, c.x - 1, c.z - 3.6, l.color); fixture(scene, c.x, c.z, l.color, .5); }
 
-  // Carteles de puerta: sobre la puerta que lleva a la sala siguiente del recorrido.
+  // Carteles de puerta. La que sigue lleva además un marco luminoso del color de la sala siguiente.
+  const glow = [], off = ROOM / 2 - WALL / 2 - .02, F = .09, frameDepth = .03;
   LESSON_ORDER.forEach((l, i) => {
     const next = LESSON_ORDER[i + 1]; if (!next) return;
-    const c = roomCenter(l.col, l.row), sign = label(`Sigue: sala ${String(i + 2).padStart(2, '0')}`, 1.8, next.title, next.color), off = ROOM / 2 - WALL / 2 - .02;
-    if (next.row > l.row) { sign.position.set(c.x + H_OFF, 2.75, c.z + off); sign.rotation.y = Math.PI; }
-    else { const dir = Math.sign(next.col - l.col); sign.position.set(c.x + dir * off, 2.75, c.z); sign.rotation.y = -dir * Math.PI / 2; }
+    const c = roomCenter(l.col, l.row), sign = label(`Sigue: sala ${String(i + 2).padStart(2, '0')}`, 1.8, next.title, next.color), tint = new THREE.Color(next.color);
+    if (next.row > l.row) {
+      const x = c.x + H_OFF, z = c.z + off; sign.position.set(x, 2.75, z); sign.rotation.y = Math.PI;
+      glow.push(colored(x - DOOR / 2 - F / 2, DOOR_H / 2, z, F, DOOR_H, frameDepth, tint), colored(x + DOOR / 2 + F / 2, DOOR_H / 2, z, F, DOOR_H, frameDepth, tint), colored(x, DOOR_H + F / 2, z, DOOR + F * 2, F, frameDepth, tint));
+    } else {
+      const dir = Math.sign(next.col - l.col), x = c.x + dir * off; sign.position.set(x, 2.75, c.z); sign.rotation.y = -dir * Math.PI / 2;
+      glow.push(colored(x, DOOR_H / 2, c.z - DOOR / 2 - F / 2, frameDepth, DOOR_H, F, tint), colored(x, DOOR_H / 2, c.z + DOOR / 2 + F / 2, frameDepth, DOOR_H, F, tint), colored(x, DOOR_H + F / 2, c.z, frameDepth, F, DOOR + F * 2, tint));
+    }
     scene.add(sign);
   });
+  const glowMat = new THREE.MeshBasicNodeMaterial(); glowMat.colorNode = vertexColor();
+  scene.add(new THREE.Mesh(mergeGeometries(glow), glowMat));
+  // Puertas fuera del recorrido: quedan abiertas, con un cartel tenue que dice a qué sala llevan.
+  for (const l of LESSON_ORDER) for (const o of LESSON_ORDER) {
+    if (o.col !== l.col || Math.abs(o.row - l.row) !== 1 || Math.abs(LESSON_INDEX[o.id] - LESSON_INDEX[l.id]) === 1) continue;
+    const c = roomCenter(l.col, l.row), south = o.row > l.row, s = label(`Sala ${String(LESSON_INDEX[o.id] + 1).padStart(2, '0')}`, 1, '', '#7f90a8');
+    s.position.set(c.x + H_OFF, 2.75, c.z + (south ? off : -off)); s.rotation.y = south ? Math.PI : 0; scene.add(s);
+  }
 
   // Pizarrones: cada uno tiene su textura propia con portada y espeja la demo al abrir la lección.
   const boards = {};
@@ -160,7 +183,20 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
   const pedestals = new Set();
   const exhibits = buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ, DOOR, horror, pedestals, models);
   grid.rebuild();
-  return { grid, boards, exhibits, floorMesh, shellMesh, pedestals };
+
+  // Cada objeto queda en el grupo de su sala, para poder ocultar las que no se ven. Lo que cruza salas queda afuera.
+  const rooms = Object.fromEntries(LESSON_ORDER.map((l) => { const g = new THREE.Group(); g.name = l.id; return [l.id, g]; }));
+  for (const o of [...scene.children]) {
+    if (!(o.isMesh || o.isGroup) || !o.position.lengthSq() || exhibits.keep.includes(o) || o === doorMesh) continue;
+    const r = roomAt(o.position.x, o.position.z); if (r) rooms[r.id].add(o);
+  }
+  scene.add(...Object.values(rooms));
+  return { grid, boards, exhibits, floorMesh, shellMesh, pedestals, rooms };
+}
+
+// Solo se dibujan la sala actual y las de su fila y columna, que son las únicas que se ven alineadas por las puertas.
+export function showRoomsAround(world, room) {
+  for (const l of LESSON_ORDER) world.rooms[l.id].visible = l.col === room.col || l.row === room.row;
 }
 
 // Normaliza un modelo: el grupo devuelto tiene su origen abajo y al centro, y la medida pedida en metros.
@@ -173,7 +209,7 @@ function prop(gltf, { w, h }) {
 
 // Foco del techo: el círculo que se ve encima de cada luz.
 function fixture(scene, x, z, col, radius = .22) {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(radius, 24).rotateX(Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(col).lerp(new THREE.Color('#fff'), .65).multiplyScalar(1.6) }));
+  const m = new THREE.Mesh(new THREE.RingGeometry(radius * .8, radius, 32).rotateX(Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(col).lerp(new THREE.Color('#fff'), .65).multiplyScalar(1.6) }));
   m.position.set(x, HEIGHT - .01, z); scene.add(m);
 }
 
@@ -200,11 +236,26 @@ function wrap(g, text, x, y, max, lh) {
 function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ, DOOR, horror, pedestals, models) {
   // Pantalla de pared con imagen en vivo sobre el modelo de TV.
   const screen = (x, y, z, ry, w) => { const tv = prop(models.tv, { w }), cv = document.createElement('canvas'); cv.width = 512; cv.height = 298; tv.position.set(x, y, z); tv.rotation.y = ry; scene.add(tv);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.PlaneGeometry(w * .93, w * .54), new THREE.MeshBasicNodeMaterial({ map: tex })); m.position.set(0, w * .3, .05); tv.add(m);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.PlaneGeometry(w * .93, w * .54), new THREE.MeshBasicNodeMaterial({ map: tex })); m.position.set(0, w * .3, Math.max(.05, w * .03)); tv.add(m);
     const g = cv.getContext('2d'); return { draw(fn) { g.fillStyle = '#07101c'; g.fillRect(0, 0, cv.width, cv.height); fn(g, cv.width, cv.height); tex.needsUpdate = true; } }; };
-  const pedestal = (id) => { const l = LESSON_ORDER[LESSON_INDEX[id]], p = roomCenter(l.col, l.row).add(new THREE.Vector3(2.6, .5, -1)); if (!pedestals.has(id)) { pedestals.add(id); fixture(scene, p.x, p.z, l.color); } return p; };
+  const pedestal = (id) => { const l = LESSON_ORDER[LESSON_INDEX[id]], [dx, dz] = pieceOffset(id), p = roomCenter(l.col, l.row).add(new THREE.Vector3(dx, .5, dz)); if (!pedestals.has(id)) { pedestals.add(id); fixture(scene, p.x, p.z, l.color); } return p; };
   const robot = (src = robotOpt) => { const m = src.clone(); m.traverse((o) => { o.frustumCulled = true; }); return m; };
-  const ex = {};
+  const ex = { keep: [] };
+  const center = (id) => { const l = LESSON_ORDER[LESSON_INDEX[id]]; return roomCenter(l.col, l.row); };
+  // Atril con la consigna de la sala. ry gira hacia dónde mira la placa: 0 es sur, PI es norte.
+  const plaque = (id, dx, dz, ry, text) => {
+    const c = center(id), col = LESSON_ORDER[LESSON_INDEX[id]].color, cv = document.createElement('canvas'); cv.width = 512; cv.height = 300;
+    const g = cv.getContext('2d'); g.fillStyle = '#0b111c'; g.fillRect(0, 0, 512, 300); g.fillStyle = col; g.fillRect(0, 0, 512, 10);
+    g.font = '700 28px "JetBrains Mono", monospace'; g.fillText('PROBÁ ESTO', 30, 62);
+    g.fillStyle = '#eef3fa'; g.font = '34px "IBM Plex Sans", sans-serif'; wrap(g, text, 30, 116, 452, 44);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+    const o = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(.025, .04, .95, 10), new THREE.MeshStandardNodeMaterial({ color: '#2b3a5c' })); post.position.y = .475;
+    const head = new THREE.Group(); head.position.y = 1.05; head.rotation.x = -.45;
+    const front = new THREE.Mesh(new THREE.PlaneGeometry(.9, .53), new THREE.MeshBasicNodeMaterial({ map: t })); front.position.z = .012;
+    head.add(new THREE.Mesh(new THREE.BoxGeometry(.92, .55, .02), new THREE.MeshStandardNodeMaterial({ color: '#1c2740' })), front);
+    o.add(post, head); o.position.set(c.x + dx, 0, c.z + dz); o.rotation.y = ry; scene.add(o);
+    grid.addBox(o.position.x - .1, o.position.x + .1, o.position.z - .1, o.position.z + .1, 'plaque');
+  };
 
   // Obstáculo real: se dibuja y entra en la grilla de colisión.
   const solid = (x0, x1, z0, z1, h, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, h, z1 - z0), new THREE.MeshStandardNodeMaterial({ color: col, roughness: .7 })); m.position.set((x0 + x1) / 2, h / 2, (z0 + z1) / 2); scene.add(m); grid.addBox(x0, x1, z0, z1, 'prop'); return m; };
@@ -216,21 +267,26 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     layers.forEach(([a, b, col], i) => {
       const s = new THREE.Mesh(new THREE.BoxGeometry(1.2 - i * .12, .22, 1.2 - i * .12), new THREE.MeshStandardNodeMaterial({ color: col, roughness: .4 }));
       s.position.y = .25 + i * .4; group.add(s);
-      const lb = label(a, 1.6, b); lb.position.set(-1.5, .4 + i * .45, 0); lb.rotation.y = -Math.PI / 3; group.add(lb); parts.push([s, lb, i]);
+      const lb = label(a, 1.6, b, col); lb.position.set(1.6, .4 + i * .45, .15); lb.rotation.y = -Math.PI / 6; group.add(lb); parts.push([s, lb, i]);
     });
     scene.add(group);
     const stats = screen(p.x, 1.25, p.z - 3.8, 0, 1.3); let spread = 0, tick = 0;
+    const c = center('stack'), hintA = floorText('Caminá hasta el aro,', 2.2), hintB = floorText('apuntá con la mira y apretá E', 3); hintA.position.set(c.x + .4, .03, c.z + 1.3); hintB.position.set(c.x + .4, .03, c.z + 1.68); scene.add(hintA, hintB, floorArrow(c.x + .1, c.z + .85, c.x - .7, c.z - 1.4, '#ffd34d'));
+    plaque('stack', 1.3, .35, -Math.PI / 4, 'Acercate: las capas se separan y muestran qué hay debajo.');
     ex.stack = { update(dt, t, game) { group.children.forEach((c, i) => { if (i < 3 * 2 && c.geometry.type === 'BoxGeometry') c.rotation.y = t * .3; });
       const near = Math.hypot(game.pos.x - p.x, game.pos.z - p.z) < 3 ? 1 : 0; spread += (near - spread) * (1 - Math.exp(-dt * 5));
       for (const [s, lb, i] of parts) { s.position.y = .25 + i * .4 + spread * i * .45; lb.position.y = .4 + i * .45 + spread * i * .45; }
-      if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); }); } };
+      if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); g.fillStyle = '#9fb2c9'; g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText('Se explican en la página 6 del pizarrón', 30, 290); }); } };
   }
 
   // Teclas WASD que se hunden de verdad
   { const p = pedestal('input'), keys = {}, offKey = '#1f2a42';
-    solid(p.x - .9, p.x + .9, p.z - .6, p.z + .6, .9, '#2b3a5c');
+    solid(p.x - .9, p.x + 1.5, p.z - .6, p.z + .6, .9, '#2b3a5c');
     const panel = new THREE.Group(); panel.position.set(p.x, 1.02, p.z); panel.rotation.x = .35; scene.add(panel);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.7, .08, 1.15), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })); panel.add(top);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(2.3, .08, 1.15), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })); top.position.x = .3; panel.add(top);
+    // El mouse de la consola se mueve con el tuyo.
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(.72, .01, .9), new THREE.MeshStandardNodeMaterial({ color: '#46587e', roughness: .9 })); pad.position.set(1.05, .046, 0); panel.add(pad);
+    const mouse = prop(models.mouse, { w: .2 }); mouse.position.set(1.05, .05, 0); panel.add(mouse); let mouseX = 0;
     [['KeyW', 0, -.28], ['KeyA', -.5, .26], ['KeyS', 0, .26], ['KeyD', .5, .26]].forEach(([code, x, z]) => {
       const k = new THREE.Mesh(new THREE.BoxGeometry(.44, .14, .44), new THREE.MeshStandardNodeMaterial({ color: offKey, roughness: .4 }));
       k.position.set(x, .1, z); panel.add(k);
@@ -239,13 +295,15 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
       const lb = new THREE.Mesh(new THREE.PlaneGeometry(.38, .38).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ map: letter, transparent: true })); lb.position.y = .072; k.add(lb);
       keys[code] = k;
     });
-    const tint = new THREE.Color(), bars = [], moves = screen(p.x, 1.25, p.z - 3.8, 0, 1.3);
-    ex.input = { update(dt, t, game) { bars.push(game.input.screenX); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
+    plaque('input', 1.1, -.05, -Math.PI / 4, 'Apretá WASD y mové el mouse: la consola responde con vos.');
+    const tint = new THREE.Color(), bars = [], moves = screen(p.x, 1.05, p.z - 3.8, 0, 2.4);
+    ex.input = { update(dt, t, game) { const moved = game.input.screenX; mouseX += (Math.max(-.24, Math.min(.24, moved * .012)) - mouseX) * (1 - Math.exp(-dt * 12)); mouse.position.x = 1.05 + mouseX; bars.push(moved); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); if (!bars.some(Boolean)) { g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Mové el mouse y mirá cómo aparecen las barras', 20, 165); } g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
       const k = 1 - Math.exp(-dt * 25); for (const c in keys) { const on = game.input.keys.has(c); keys[c].position.y += ((on ? .05 : .1) - keys[c].position.y) * k; keys[c].material.color.lerp(tint.set(on ? '#ff9a3c' : offKey), k); } } };
   }
 
   // Yaw: robot que copia tu cámara, con las flechas sin/cos sobre el piso
-  { const p = pedestal('yaw'); p.y = 0; const r = robot(); r.position.copy(p); scene.add(r);
+  { const p = pedestal('yaw'); p.y = 0; const r = robot(); r.position.copy(p); scene.add(r); grid.addBox(p.x - .2, p.x + .2, p.z - .2, p.z + .2, 'robot');
+    plaque('yaw', 2.6, 1.3, -Math.PI * .75, 'Girá con el mouse: el robot copia tu cámara y las flechas cambian.');
     const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d'), mid = 512, col = '#ff5d73';
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 8; for (const R of [490, 360]) { g.beginPath(); g.arc(mid, mid, R, 0, 7); g.stroke(); }
     for (let i = 0; i < 36; i++) { const a = i / 36 * Math.PI * 2, r0 = i % 9 === 0 ? 330 : 440; g.beginPath(); g.moveTo(mid + Math.sin(a) * r0, mid - Math.cos(a) * r0); g.lineTo(mid + Math.sin(a) * 488, mid - Math.cos(a) * 488); g.stroke(); }
@@ -254,10 +312,15 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const rose = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 3.8).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ map: tex, transparent: true, opacity: .8 })); rose.position.set(p.x, .021, p.z); scene.add(rose);
     const f = makeArrow('#ff9a3c'), sx = makeArrow('#45d6c4'), cz = makeArrow('#ff5d73');
     for (const a of [f, sx, cz]) { a.position.set(p.x, .04, p.z); scene.add(a); }
+    f.position.y = .045;
+    const names = { f: floorText('adelante', .8, '#ff9a3c'), sx: floorText('sin: el costado', 1.2, '#45d6c4'), cz: floorText('cos: el frente', 1.2, '#ff5d73') };
+    for (const n of Object.values(names)) { n.position.y = .05; scene.add(n); }
+    const place = (n, x, z) => { n.visible = Math.hypot(x, z) > .45; n.position.x = p.x + x; n.position.z = p.z + z; };
     let shown = 0;
     ex.yaw = { update(dt, t, game) { const goal = game.demoYaw ?? game.yaw, turn = Math.atan2(Math.sin(goal - shown), Math.cos(goal - shown)); shown += turn * (1 - Math.exp(-dt * 14)); const y = shown, L = 1.7; r.rotation.y = y + Math.PI;
       const fx = -Math.sin(y) * L, fz = -Math.cos(y) * L;
-      f.set(fx, fz); sx.set(fx, 0); cz.set(0, fz); } };
+      f.set(fx, fz); sx.set(fx, 0); cz.set(0, fz);
+      place(names.f, fx * 1.15, fz * 1.15); place(names.sx, fx, Math.sign(fz || 1) * -.22); place(names.cz, Math.sign(fx || 1) * -.65, fz); } };
   }
 
   // Suavizado: tres cubos persiguen el mismo objetivo
@@ -265,7 +328,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const track = new THREE.Mesh(new THREE.PlaneGeometry(8.6, 2).rotateX(-Math.PI / 2), new THREE.MeshStandardNodeMaterial({ color: '#23262e', roughness: .9 })); track.position.set(cx, .012, p.z + 2.75); scene.add(track);
     for (const dz of [-.33, .33]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(8.6, .03).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#d8dde6' })); m.position.set(cx, .018, p.z + 2.75 + dz); scene.add(m); }
     const flag = new THREE.Mesh(new THREE.PlaneGeometry(.12, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d' })); flag.position.set(cx, .02, p.z + 2.75); scene.add(flag);
-    const cubes = names.map(([col, n], i) => { const z = p.z + 2.09 + i * .66; const m = new THREE.Mesh(new THREE.BoxGeometry(.5, .3, .36), new THREE.MeshStandardNodeMaterial({ color: col })); m.position.set(cx - 3.9, .16, z); scene.add(m); const lb = label(n, 1.5, '', col); lb.position.set(cx - 3.4, .55, z); lb.rotation.y = Math.PI; scene.add(lb); return { m, x: -3.9, acc: 0 }; });
+    const cubes = names.map(([col, n], i) => { const z = p.z + 2.09 + i * .66; const m = new THREE.Mesh(new THREE.BoxGeometry(.5, .3, .36), new THREE.MeshStandardNodeMaterial({ color: col })); m.position.set(cx - 3.9, .16, z); scene.add(m); const lb = floorText(n, 1.7, col); lb.position.set(cx - 3.1, .03, z); lb.rotation.y = Math.PI; scene.add(lb); return { m, x: -3.9, acc: 0 }; });
+    plaque('smoothing', 2.6, -.5, -Math.PI * .75, 'Mirá los tres bloques: van al mismo lugar y llegan distinto.');
     let target = 3.9, clock = 0;
     ex.smoothing = { update(dt) { clock += dt; if (clock > 3.2) { clock = 0; target = -target; }
       cubes[0].x = target;
@@ -281,9 +345,12 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     [[1.7, -2.1], [2.3, -2.1], [1.7, -1.5], [2.3, -1.5]].forEach(([x, z]) => crate(x, z)); crate(2, -1.8, .6);
     [-2.1, -1.5, -.9, -.3].forEach((x) => crate(x, 1.3)); crate(-1.8, 1.3, .6); crate(-.6, 1.3, .6);
     grid.addBox(c0.x + 1.4, c0.x + 2.6, c0.z - 2.4, c0.z - 1.2, 'prop'); grid.addBox(c0.x - 2.4, c0.x, c0.z + 1, c0.z + 1.6, 'prop'); solid(c0.x + 1, c0.x + 1.4, c0.z + .4, c0.z + .8, HEIGHT, '#46587e');
-    // Palanca junto a la puerta oeste: cierra la puerta sin abrir el panel.
-    const leverPos = new THREE.Vector3(doorMesh.position.x + WALL / 2 + .04, 1.15, doorZ + DOOR / 2 + .55), plate = new THREE.Mesh(new THREE.BoxGeometry(.06, .5, .3), new THREE.MeshStandardNodeMaterial({ color: '#33415f' })), handle = new THREE.Group(), stick = new THREE.Mesh(new THREE.BoxGeometry(.05, .4, .05).translate(0, .2, 0), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d' }));
-    plate.position.copy(leverPos); handle.position.copy(leverPos); handle.add(stick); scene.add(plate, handle); ex.lever = { pos: leverPos, handle };
+    // Botón junto a la puerta oeste: cierra la puerta sin abrir el panel.
+    const button = prop(models.button, { h: .3 }), wallX = doorMesh.position.x + WALL / 2, buttonZ = doorZ + DOOR / 2 + .55, depth = new THREE.Box3().setFromObject(button).getSize(new THREE.Vector3()).x; button.position.set(wallX + depth / 2, 1, buttonZ); scene.add(button);
+    let presser = null, pressed = 0, rest = 0; button.traverse((o) => { if (o.material?.name === 'button-presser') presser = o; }); rest = presser.position.x;
+    ex.doorButton = { pos: new THREE.Vector3(wallX + depth, 1.15, buttonZ), press() { pressed = 1; } };
+    // Tu celda y tu radio sobre la grilla: el jugador es un punto y los obstáculos crecen 30 cm.
+    const yellow = new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: .9, depthWrite: false }), myCell = new THREE.Mesh(new THREE.PlaneGeometry(CELL, CELL).rotateX(-Math.PI / 2), yellow), myRadius = new THREE.Mesh(new THREE.RingGeometry(PLAYER_RADIUS - .02, PLAYER_RADIUS, 32).rotateX(-Math.PI / 2), yellow); myCell.position.y = myRadius.position.y = .03; scene.add(myCell, myRadius); ex.keep.push(myCell, myRadius);
     grid.rebuild();
     const cv = document.createElement('canvas'); cv.width = cv.height = 50 * 8;
     const tex = new THREE.CanvasTexture(cv); tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
@@ -298,11 +365,14 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     paint();
     let doorT = 0;
     ex.collision = { setDoor(closed) { doorBox.enabled = closed; grid.rebuild(); paint(); }, get doorClosed() { return doorBox.enabled; },
-      update(dt) { doorT += ((doorBox.enabled ? 1 : 0) - doorT) * (1 - Math.exp(-dt * 8)); doorMesh.position.z = doorZ - DOOR * (1 - doorT); } };
+      update(dt, t, game) { doorT += ((doorBox.enabled ? 1 : 0) - doorT) * (1 - Math.exp(-dt * 8)); doorMesh.position.z = doorZ - DOOR * (1 - doorT);
+        pressed *= Math.exp(-dt * 7); presser.position.x = rest - pressed * .08;
+        myRadius.position.x = game.pos.x; myRadius.position.z = game.pos.z; myCell.position.x = (Math.floor(game.pos.x / CELL) + .5) * CELL; myCell.position.z = (Math.floor(game.pos.z / CELL) + .5) * CELL; } };
   }
 
   // A*: un personaje que te persigue con el pathfinding real
-  { const l = LESSON_ORDER[LESSON_INDEX.astar]; const home = roomCenter(l.col, l.row); const r = horror.scene; r.traverse((o) => { o.frustumCulled = false; if (o.material) o.material.metalness = 0; }); r.position.set(home.x + 2.6, 0, home.z + 2); scene.add(r);
+  { const l = LESSON_ORDER[LESSON_INDEX.astar]; const home = roomCenter(l.col, l.row); const r = horror.scene; r.traverse((o) => { o.frustumCulled = false; if (o.material) o.material.metalness = 0; }); r.position.set(home.x - 3.5, 0, home.z + 3.7); r.rotation.y = Math.PI * .75; scene.add(r); ex.keep.push(r);
+    plaque('astar', 3.6, -1.3, .8, 'Movete por la sala: te busca un camino nuevo cada 0,6 segundos.');
     // Muros bajos: tapan el paso pero dejan verla venir.
     const lowWall = '#5d6b5f'; solid(home.x + 1, home.x + 1.4, home.z - 2, home.z + 2, 1.1, lowWall); solid(home.x - 2.4, home.x + 1, home.z + 1.6, home.z + 2, 1.1, lowWall); solid(home.x - 3.4, home.x - 3, home.z - .8, home.z + 1, 1.1, lowWall);
     grid.rebuild();
@@ -328,27 +398,39 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
 
   // TSL: esfera con shader programable desde sliders
   { const p = pedestal('webgpu'); const u = { amp: uniform(.08), freq: uniform(9), speed: uniform(1.6), mixA: uniform(.5) };
-    const mat = new THREE.MeshStandardNodeMaterial({ roughness: .3, metalness: .2 });
-    const phase = uniform(0), wave = sin(positionLocal.y.mul(u.freq).add(phase));
-    mat.positionNode = positionLocal.add(normalLocal.mul(wave.mul(u.amp)));
-    mat.colorNode = mix(color('#ff9a3c'), color('#45d6c4'), wave.mul(.5).add(.5).mul(u.mixA.mul(2)).clamp());
-    const s = new THREE.Mesh(new THREE.SphereGeometry(.55, 96, 64), mat); s.position.set(p.x, p.y + .75, p.z); scene.add(s);
-    ex.webgpu = { u, update(dt, t) { s.rotation.y = t * .25; phase.value += dt * u.speed.value; } };
+    const phase = uniform(0), wave = sin(positionLocal.y.mul(u.freq).add(phase)), shaped = positionLocal.add(normalLocal.mul(wave.mul(u.amp)));
+    // Las tres etapas del mismo shader. Todas deforman igual, porque leen los mismos uniforms.
+    const points = new THREE.MeshBasicNodeMaterial({ wireframe: true }); points.colorNode = color('#45d6c4');
+    const cells = fract(screenCoordinate.xy.div(9)), pixels = new THREE.MeshBasicNodeMaterial(); pixels.colorNode = color('#ff9a3c').mul(step(cells.x, .72).mul(step(cells.y, .72)).mul(.92).add(.08));
+    const paint = new THREE.MeshStandardNodeMaterial({ roughness: .3, metalness: .2 }); paint.colorNode = mix(color('#ff9a3c'), color('#45d6c4'), wave.mul(.5).add(.5).mul(u.mixA.mul(2)).clamp());
+    const shape = new THREE.SphereGeometry(.55, 48, 32);
+    // Mirando al sur, +x queda a la izquierda: así se leen 1, 2, 3.
+    const spheres = [[points, '1. Vertex', 'mueve los puntos', 2.6], [pixels, '2. Rasterizado', 'elige qué píxeles cubre', 0], [paint, '3. Fragment', 'pinta cada píxel', -2.6]].map(([mat, a, b, dx]) => {
+      mat.positionNode = shaped; const s = new THREE.Mesh(shape, mat); s.position.set(p.x + dx, p.y + .75, p.z); scene.add(s);
+      const lb = label(a, 1.9, b); lb.position.set(p.x + dx, 2.3, p.z); lb.rotation.y = Math.PI; scene.add(lb); return s; });
+    plaque('webgpu', 1.3, 1.5, 2.6, 'Mové los sliders del pizarrón: las tres esferas usan el mismo código.');
+    ex.webgpu = { u, update(dt, t) { for (const s of spheres) s.rotation.y = t * .25; phase.value += dt * u.speed.value; } };
   }
 
   // Compresión: original contra comprimido, con cuantización en vivo por shader
   { const p = pedestal('compression'); const bits = uniform(14), tilt = .18, arm = 1.25, topY = p.y + 1.7, metalBar = new THREE.MeshStandardNodeMaterial({ color: '#b9c3d6', roughness: .35, metalness: .6 });
-    const bar = (w, h, d, x, y, z, rz = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), metalBar); m.position.set(x, y, z); m.rotation.z = rz; scene.add(m); };
-    bar(.12, 1.7, .12, p.x, p.y + .85, p.z); bar(2.6, .07, .07, p.x, topY, p.z, tilt);
-    const ends = [-1, 1].map((d) => ({ x: p.x + d * arm * Math.cos(tilt), y: topY + d * arm * Math.sin(tilt) }));
-    const plates = ends.map((e) => { const y = e.y - .95; bar(.03, .95, .03, e.x, e.y - .475, p.z); const d = new THREE.Mesh(new THREE.CylinderGeometry(.42, .42, .04, 32), metalBar); d.position.set(e.x, y, p.z); scene.add(d); return { x: e.x, y: y + .02 }; });
-    const b = robot(); b.scale.setScalar(.42); b.position.set(plates[1].x, plates[1].y, p.z); b.rotation.y = Math.PI; scene.add(b);
+    // El brazo apunta de norte a sur, para verla de frente al entrar desde el este.
+    const rig = new THREE.Group(); rig.position.set(p.x, 0, p.z); rig.rotation.y = Math.PI / 2; scene.add(rig);
+    const bar = (w, h, d, x, y, z, rz = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), metalBar); m.position.set(x, y, z); m.rotation.z = rz; rig.add(m); };
+    bar(.12, 1.7, .12, 0, p.y + .85, 0); bar(2.6, .07, .07, 0, topY, 0, tilt);
+    const ends = [-1, 1].map((d) => ({ x: d * arm * Math.cos(tilt), y: topY + d * arm * Math.sin(tilt) }));
+    const plates = ends.map((e) => { const y = e.y - .95; bar(.03, .95, .03, e.x, e.y - .475, 0); const d = new THREE.Mesh(new THREE.CylinderGeometry(.42, .42, .04, 32), metalBar); d.position.set(e.x, y, 0); rig.add(d); return { x: e.x, y: y + .02 }; });
+    const b = robot(); b.scale.setScalar(.42); b.position.set(plates[1].x, plates[1].y, 0); rig.add(b);
     const steps = uniform(16384);
     b.traverse((o) => { if (o.isMesh) { const src = o.material; const m = new THREE.MeshStandardNodeMaterial({ map: src.map, roughness: .45, metalness: .6 }); m.positionNode = floor(positionLocal.div(2).add(.5).mul(steps)).div(steps).sub(.5).mul(2); o.material = m; } });
     const la = label('4,13 MB', 1.5, 'original', '#ff5d73'), lb = label('1,11 MB', 1.5, 'comprimido', '#5cd678');
-    la.position.set(plates[0].x - .3, 2.7, p.z); lb.position.set(plates[1].x + .3, 2.7, p.z); scene.add(la, lb);
+    la.position.set(plates[0].x - .2, 2.75, 0); lb.position.set(plates[1].x + .2, 2.75, 0); rig.add(la, lb);
+    plaque('compression', -.9, 3.3, Math.PI / 2 + .4, 'Bajá los bits en el pizarrón y mirá cómo se deforma el robot de la derecha.');
+    // Los carteles giran hacia vos, para leerse desde cualquier lado de la sala.
+    const spot = new THREE.Vector3();
     let asked = false;
-    ex.compression = { bits, setBits(n) { steps.value = 2 ** n; }, update() { if (asked) return; asked = true; robotRaw().then((src) => { const a = robot(src); a.scale.setScalar(.42); a.position.set(plates[0].x, plates[0].y, p.z); a.rotation.y = Math.PI; scene.add(a); }); } };
+    ex.compression = { bits, setBits(n) { steps.value = 2 ** n; }, update(dt, t, game) { for (const l of [la, lb]) { l.getWorldPosition(spot); l.rotation.y = Math.atan2(game.pos.x - spot.x, game.pos.z - spot.z) - rig.rotation.y; }
+      if (asked) return; asked = true; robotRaw().then((src) => { const a = robot(src); a.scale.setScalar(.42); a.position.set(plates[0].x, plates[0].y, 0); rig.add(a); }); } };
   }
 
   // Workers: este cubo gira en el hilo principal, así que se congela si lo bloqueás.
@@ -356,14 +438,25 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     m.position.set(p.x, p.y + .75, p.z); scene.add(m);
     // Sala de máquinas: el rack se enciende y los pulsos viajan mientras trabaja el worker.
     const c = roomCenter(LESSON_ORDER[LESSON_INDEX.workers].col, LESSON_ORDER[LESSON_INDEX.workers].row), rackA = prop(models.rack, { h: 2.1 }), rackB = rackA.clone(); rackA.position.set(c.x - 3.05, 0, c.z + 4.3); rackB.position.set(c.x - 2.2, 0, c.z + 4.3); rackA.rotation.y = rackB.rotation.y = Math.PI; rackA.traverse((o) => { if (o.material) o.material.metalness = 0; }); scene.add(rackA, rackB); grid.addBox(c.x - 3.6, c.x - 1.65, c.z + 3.75, c.z + 4.85, 'rack');
-    const led = new THREE.MeshBasicNodeMaterial({ color: '#33415f' }), strip = new THREE.Mesh(new THREE.BoxGeometry(1.8, .08, .04), led); strip.position.set(c.x - 2.625, 2.2, c.z + 3.74); scene.add(strip);
+    const led = new THREE.MeshBasicNodeMaterial({ color: '#2a8f86' }), ledBars = [new THREE.BoxGeometry(1.8, .08, .04).translate(c.x - 2.625, 2.2, c.z + 3.73)];
+    for (const dx of [-3.05, -2.2]) for (let k = 0; k < 7; k++) ledBars.push(new THREE.BoxGeometry(.6, .035, .02).translate(c.x + dx, .35 + k * .24, c.z + 3.72));
+    const strip = new THREE.Mesh(mergeGeometries(ledBars), led); ex.keep.push(strip); scene.add(strip);
     const pulse = new THREE.Mesh(new THREE.SphereGeometry(.08, 12, 12), new THREE.MeshBasicNodeMaterial({ color: '#ff9a3c' })), pulses = [0, 1, 2, 3, 4, 5].map(() => { const q = pulse.clone(); q.visible = false; scene.add(q); return q; }), from = new THREE.Vector3(p.x, .1, p.z + .8), to = new THREE.Vector3(c.x - 2.625, .1, c.z + 3.6);
     const duct = new THREE.Mesh(new THREE.BoxGeometry(from.distanceTo(to), .02, .22), new THREE.MeshStandardNodeMaterial({ color: '#30384a', roughness: .5, metalness: .4 })); duct.position.copy(from).lerp(to, .5).setY(.012); duct.rotation.y = -Math.atan2(to.z - from.z, to.x - from.x); scene.add(duct);
-    const times = screen(c.x + 1.8, .9, c.z + 4.8, Math.PI, 2.6), params = LESSON_ORDER[LESSON_INDEX.workers].params, history = []; let tick = 0;
-    ex.workers = { update(dt, t, game) { m.rotation.x = t * 1.2; m.rotation.y = t * 1.8; const busy = !!params.busy; led.color.set(busy ? '#ff9a3c' : '#33415f');
+    const lesson = LESSON_ORDER[LESSON_INDEX.workers], times = screen(c.x + 2.6, 1, c.z - 4.8, 0, 2.4), params = lesson.params, history = []; let tick = 0;
+    // Atril con dos botones: el mismo trabajo pesado, en el hilo principal o en un worker.
+    const standX = c.x + .6, standZ = c.z + .25, desk = new THREE.Group(); solid(standX - .55, standX + .55, standZ - .2, standZ + .2, .95, '#2b3a5c'); desk.position.set(standX, 1.02, standZ); desk.rotation.x = .4; scene.add(desk);
+    desk.add(new THREE.Mesh(new THREE.BoxGeometry(1.2, .05, .56), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })));
+    const stand = [[-.28, '#ff5d73', 'Hilo principal', 'Congelar el juego', 'runMain'], [.28, '#45d6c4', 'Worker', 'Usar el worker', 'runWorker']].map(([dx, col, name, verb, run]) => {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .1, .06, 24), new THREE.MeshBasicNodeMaterial({ color: col })); cap.position.set(dx, .06, -.07); desk.add(cap);
+      const tag = label(name, .52, '', col); tag.rotation.x = -Math.PI / 2; tag.position.set(dx, .03, .17); desk.add(tag);
+      return { cap, verb, run, push: 0, pos: new THREE.Vector3(standX + dx, 1.12, standZ - .05) }; });
+    ex.workers = { stand, // El trabajo arranca un instante después, para que el botón llegue a verse hundido antes de que se congele todo.
+      push(b, game) { b.push = 1; setTimeout(() => { lesson.actions[b.run](params); game.say(params.log); }, 90); },
+      update(dt, t, game) { m.rotation.x = t * 1.2; m.rotation.y = t * 1.8; const busy = !!params.busy; led.color.set(busy ? '#ff9a3c' : '#2a8f86'); for (const b of stand) { b.push *= Math.exp(-dt * 6); b.cap.position.y = .06 - b.push * .03; }
       pulses.forEach((q, i) => { q.visible = busy; q.position.lerpVectors(from, to, (t * .6 + i / 6) % 1); });
       history.push(dt * 1000); if (history.length > 100) history.shift();
-      if (tick++ % 4) return; times.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('Tiempo de cada frame (ms)', 20, 34); g.strokeStyle = '#ffd34d'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(0, 250); g.lineTo(w, 250); g.stroke(); g.setLineDash([]); history.forEach((v, i) => { const b = Math.min(240, v * 2); g.fillStyle = v > 16.7 ? '#ff5d73' : '#45d6c4'; g.fillRect(i * 5, 283 - b, 4, b); }); }); } };
+      if (tick++ % 4) return; times.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('Tiempo de cada frame (ms)', 20, 34); g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText(String(params.log).slice(0, 56), 20, 62); g.strokeStyle = '#ffd34d'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(0, 250); g.lineTo(w, 250); g.stroke(); g.setLineDash([]); history.forEach((v, i) => { const b = Math.min(240, v * 2); g.fillStyle = v > 16.7 ? '#ff5d73' : '#45d6c4'; g.fillRect(i * 5, 283 - b, 4, b); }); }); } };
   }
 
   // Sala 12: puesto de trabajo. El foco del pedestal cae sobre el escritorio.
@@ -380,10 +473,26 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const cpu = prop(models.cpu, { h: .42 }); cpu.position.set(x + .62, deskH, z - .1); scene.add(cpu);
     const mouse = prop(models.mouse, { w: .12 }); mouse.position.set(x + .34, deskH, z + .2); scene.add(mouse);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(.07, .08, .05, 24), new THREE.MeshBasicNodeMaterial({ color: '#ff2f45' })), base2 = new THREE.Mesh(new THREE.CylinderGeometry(.11, .11, .03, 24), new THREE.MeshStandardNodeMaterial({ color: '#1c2740' })); base2.position.set(x - .55, deskH + .015, z + .15); cap.position.set(x - .55, deskH + .055, z + .15); scene.add(base2, cap);
-    const lesson = LESSON_ORDER[LESSON_INDEX.prompts]; let shown = '', frames = 0, flash = 0;
-    const paint = (text) => { gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '24px "JetBrains Mono", monospace'; text.split('\n').flatMap((t) => t.match(/.{1,68}/g) ?? ['']).slice(0, 12).forEach((t, i) => gc.fillText(t, 30, 44 + i * 29)); tex.needsUpdate = true; };
-    ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Deploy: prompt copiado'); },
-      update(dt, t, game) { if (frames++ % 30 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(text); } } flash *= Math.exp(-dt * 2.5); cap.position.y = deskH + .055 - flash * .025; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
+    const lesson = LESSON_ORDER[LESSON_INDEX.prompts], c = center('prompts'); let shown = '', frames = 0, flash = 0;
+    // Tablero: un interruptor por técnica, del color de la sala donde se aprendió. Prenderlo suma esa parte al prompt.
+    const roomOf = ['stack', 'input', 'yaw', 'collision', 'astar', 'webgpu', 'compression', 'workers', 'audio', 'gamefeel'], PW = 5.4, PH = 2.1, PY = 1.55, wallX = c.x + 4.83, cv2 = document.createElement('canvas'); cv2.width = 1024; cv2.height = 398;
+    const g2 = cv2.getContext('2d'), boardTex = new THREE.CanvasTexture(cv2); boardTex.colorSpace = THREE.SRGBColorSpace;
+    const boardMesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicNodeMaterial({ map: boardTex })); boardMesh.position.set(wallX, PY, c.z); boardMesh.rotation.y = -Math.PI / 2; scene.add(boardMesh);
+    const leverGeo = new THREE.BoxGeometry(.1, .24, .14);
+    const switches = lesson.blocks.map(([key, name], i) => { const col = i % 5, row = Math.floor(i / 5), cx = (col + .5) * 1024 / 5, cy = 130 + row * 150, tint = LESSON_ORDER[LESSON_INDEX[roomOf[i]]].color;
+      const y = PY + (199 - cy) / 398 * PH, zz = c.z + (cx / 1024 - .5) * PW, mesh = new THREE.Mesh(leverGeo, new THREE.MeshBasicNodeMaterial({ color: tint })); mesh.position.set(wallX - .07, y, zz); scene.add(mesh);
+      return { key, name, tint, cx, cy, mesh, pos: mesh.position.clone() }; });
+    const paintBoard = () => { g2.fillStyle = '#0b111c'; g2.fillRect(0, 0, 1024, 398); g2.textAlign = 'center'; g2.fillStyle = '#eef3fa'; g2.font = '700 34px "Chakra Petch", sans-serif'; g2.fillText('Encendé las técnicas de tu prompt', 512, 46);
+      for (const s of switches) { const on = lesson.params[s.key]; g2.fillStyle = '#1c2740'; g2.fillRect(s.cx - 44, s.cy - 56, 88, 88); g2.fillStyle = on ? s.tint : '#6f7f96'; g2.font = '700 25px "IBM Plex Sans", sans-serif'; g2.fillText(s.name, s.cx, s.cy + 60); s.mesh.rotation.z = on ? .35 : -.35; s.mesh.material.color.set(on ? s.tint : '#3a4560'); }
+      boardTex.needsUpdate = true; };
+    const big = screen(c.x, .8, c.z + 4.8, Math.PI, 3.4);
+    plaque('prompts', -3.6, -1.5, -.75, 'Último paso: elegí en el tablero qué pedirle a la IA y apretá el botón rojo.');
+    const count = () => switches.filter((s) => lesson.params[s.key]).length;
+    const paint = () => { const n = count(); gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '700 56px "JetBrains Mono", monospace'; ['> tu prompt', `> ${n} de ${switches.length} técnicas`, '> botón rojo: copiar'].forEach((t, i) => gc.fillText(t, 50, 110 + i * 110)); tex.needsUpdate = true;
+      paintBoard();
+      big.draw((g, w) => { g.fillStyle = '#7dffb0'; g.font = '700 32px "Chakra Petch", sans-serif'; g.fillText(`Tu prompt: ${n} de ${switches.length} técnicas`, 24, 46); g.font = '22px "IBM Plex Sans", sans-serif'; switches.forEach((s, i) => { g.fillStyle = lesson.params[s.key] ? s.tint : '#3a4560'; g.fillText(s.name, 24 + (i % 2) * 240, 92 + Math.floor(i / 2) * 42); }); }); };
+    ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), switches, flip(s, game) { lesson.params[s.key] = !lesson.params[s.key]; game.S.paramsRev.value++; game.sound.blip(660); }, deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Prompt copiado. Terminaste el recorrido: pegalo en tu IA'); },
+      update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; cap.position.y = deskH + .055 - flash * .025; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
     const chair = prop(models.chair, { h: .95 }); chair.position.set(x, 0, z + .75); chair.rotation.y = Math.PI / 2; scene.add(chair);
     grid.addBox(x - .85, x + .85, z - .45, z + 1.1, 'desk'); }
 
@@ -392,14 +501,18 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const standX = c.x + 1.5, standZ = c.z + 1.8, stand = new THREE.Mesh(new THREE.CylinderGeometry(.05, .12, 1.2, 16), new THREE.MeshStandardNodeMaterial({ color: '#2b3a5c' })); stand.position.set(standX, .6, standZ); scene.add(stand); grid.addBox(standX - .15, standX + .15, standZ - .15, standZ + .15, 'head');
     const head = prop(models.head, { h: .34 }); head.position.set(standX, 1.2, standZ); scene.add(head);
     const hear = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: .7 })); hear.position.set(standX, .03, standZ); scene.add(hear);
-    const foamCv = document.createElement('canvas'); foamCv.width = foamCv.height = 256; { const g = foamCv.getContext('2d'); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const a = x * 32, b = y * 32; [['#3a3440', [[a, b], [a + 32, b], [a + 16, b + 16]]], ['#26212c', [[a, b + 32], [a + 32, b + 32], [a + 16, b + 16]]], ['#2f2a36', [[a, b], [a, b + 32], [a + 16, b + 16]]], ['#2f2a36', [[a + 32, b], [a + 32, b + 32], [a + 16, b + 16]]]].forEach(([col, pts]) => { g.fillStyle = col; g.beginPath(); pts.forEach(([u, v], i) => (i ? g.lineTo(u, v) : g.moveTo(u, v))); g.fill(); }); } }
+    const foamCv = document.createElement('canvas'); foamCv.width = foamCv.height = 256; { const g = foamCv.getContext('2d'); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const a = x * 32, b = y * 32; [['#7a6d86', [[a, b], [a + 32, b], [a + 16, b + 16]]], ['#3f3747', [[a, b + 32], [a + 32, b + 32], [a + 16, b + 16]]], ['#5a5064', [[a, b], [a, b + 32], [a + 16, b + 16]]], ['#5a5064', [[a + 32, b], [a + 32, b + 32], [a + 16, b + 16]]]].forEach(([col, pts]) => { g.fillStyle = col; g.beginPath(); pts.forEach(([u, v], i) => (i ? g.lineTo(u, v) : g.moveTo(u, v))); g.fill(); }); } }
     const foam = new THREE.CanvasTexture(foamCv); foam.colorSpace = THREE.SRGBColorSpace; const foamMat = new THREE.MeshStandardNodeMaterial({ map: foam, roughness: 1 });
     for (const dz of [-3.5, -2, 2, 3.5]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), foamMat); p.position.set(c.x + 4.83, 1.6, c.z + dz); p.rotation.y = -Math.PI / 2; scene.add(p); }
+    for (const dx of [-.4, 1.1, 2.6]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), foamMat); p.position.set(c.x + dx, 1.6, c.z + 4.83); p.rotation.y = Math.PI; scene.add(p); }
     const waves = [0, 1, 2].map(() => { const r = new THREE.Mesh(new THREE.RingGeometry(.3, .33, 32), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: 0, side: THREE.DoubleSide })); r.position.set(0, .35, -.3); m.add(r); return r; });
     m.position.set(c.x + 2.5, 1.15, c.z); scene.add(m);
     const pos = m.position; // Órbita corrida al sudeste para no pasar por donde uno se para a leer el pizarrón.
     const OX = 1.5, OZ = 1.8, OR = 2; const ring = new THREE.Mesh(new THREE.RingGeometry(OR, OR + .05, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: .35 })); ring.position.set(c.x + OX, .03, c.z + OZ); scene.add(ring);
-    ex.audio = { pos, center: c, orbit: true, offset: new THREE.Vector2(3, 0), update(dt, t, game) { if (ex.audio.orbit) { ex.audio.offset.set(OX + Math.cos(t * .5) * OR, OZ + Math.sin(t * .5) * OR); } pos.set(c.x + ex.audio.offset.x, 1.15 + Math.sin(t * 2) * .05, c.z + ex.audio.offset.y); m.rotation.y = Math.atan2(c.x + OX - pos.x, c.z + OZ - pos.z) + Math.PI; waves.forEach((r, i) => { const k = (t * .8 + i / 3) % 1; r.scale.setScalar(.8 + k * 1.2); r.position.z = -.3 - k * .7; r.material.opacity = game.sound.speakerOn ? (1 - k) * .7 : 0; }); } };
+    // El parlante cuelga de un riel en el techo que sigue su órbita.
+    const steel = new THREE.MeshStandardNodeMaterial({ color: '#39465f', roughness: .5, metalness: .5 }), rail = new THREE.Mesh(new THREE.TorusGeometry(OR, .035, 8, 64).rotateX(Math.PI / 2), steel), rod = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, 1.5, 8), steel); rail.position.set(c.x + OX, HEIGHT - .06, c.z + OZ); rod.position.y = 1.4; m.add(rod); scene.add(rail);
+    plaque('audio', -1.2, .6, -1.9, 'Parate en el aro, apretá M y girá: el sonido cambia de oído.');
+    ex.audio = { pos, center: c, orbit: true, offset: new THREE.Vector2(3, 0), update(dt, t, game) { if (ex.audio.orbit) { ex.audio.offset.set(OX + Math.cos(t * .5) * OR, OZ + Math.sin(t * .5) * OR); } pos.set(c.x + ex.audio.offset.x, 1.15 + Math.sin(t * 2) * .05, c.z + ex.audio.offset.y); m.rotation.y = Math.atan2(c.x + OX - pos.x, c.z + OZ - pos.z) + Math.PI; waves.forEach((r, i) => { const k = (t * .8 + i / 3) % 1; r.scale.setScalar(.8 + k * 1.2); r.position.z = -.3 - k * .7; r.material.opacity = (1 - k) * (game.sound.speakerOn ? .7 : .16); }); } };
   }
 
   // Sala 11: pasarela con tres pisos. Cada uno tiene su sonido, y cada paso deja una huella.
@@ -412,7 +525,10 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     seg(0, new THREE.MeshStandardNodeMaterial({ map: tile(noise('#6f6a62', ['#8f897f', '#4e4a44', '#a9a297'], 5)), roughness: 1 }));
     seg(2.6, new THREE.MeshStandardNodeMaterial({ map: tile(noise('#7a2f38', ['#8a3944', '#6a2630'], 1.2)), roughness: 1 }));
     for (let i = 0; i <= 5; i++) { const t = new THREE.Mesh(new THREE.PlaneGeometry(.03, .3).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d' })); t.position.set(c.x - 3.625 + i * 1.45, .02, c.z + 1.28); scene.add(t); }
-    const ruler = label('1 paso = 1,45 m', 1.6, '', '#ffd34d'); ruler.position.set(c.x, .5, c.z + 1.7); ruler.rotation.y = Math.PI; scene.add(ruler);
+    // Rótulos del piso: se leen caminando de oeste a este, que es el sentido del recorrido.
+    const ruler = floorText('1 paso = 1,45 m', 1.5); ruler.position.set(c.x, .03, c.z + 2.15); ruler.rotation.y = -Math.PI / 2; scene.add(ruler);
+    [['metal', -2.6], ['grava', 0], ['alfombra', 2.6]].forEach(([n, x]) => { const t = floorText(n, 1, '#eef3fa'); t.position.set(c.x + x, .03, c.z - 1.75); t.rotation.y = -Math.PI / 2; scene.add(t); });
+    plaque('gamefeel', -3.5, -1.7, -.5, 'Cruzá la pasarela: cada piso suena distinto y cada paso deja una huella.');
     const prints = Array.from({ length: 12 }, () => { const m = new THREE.Mesh(new THREE.CircleGeometry(.08, 16).rotateX(-Math.PI / 2).scale(1, 1, 1.9), new THREE.MeshBasicNodeMaterial({ color: '#ffd34d', transparent: true, opacity: 0 })); m.position.y = .03; scene.add(m); return m; });
     let next = 0;
     ex.surfaceAt = (x, z) => { const dx = x - c.x, dz = z - c.z; if (Math.abs(dz) > 1.1 || Math.abs(dx) > 3.9) return null; return dx < -1.3 ? 'metal' : dx < 1.3 ? 'gravel' : 'carpet'; };
@@ -421,13 +537,16 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   }
 
   // Interacciones con E que no abren un pizarrón.
-  { const u = ex.collision.update?.bind(ex.collision); ex.collision.update = (...a) => { u?.(...a); ex.lever.handle.rotation.z = ex.collision.doorClosed ? .7 : -.7; }; }
   const doorAim = new THREE.Vector3(doorMesh.position.x, 1.1, doorZ);
-  const toggleDoor = (game) => { ex.collision.setDoor(!ex.collision.doorClosed); game.say(ex.collision.doorClosed ? 'Puerta cerrada: el mapa cambió' : 'Puerta abierta: el mapa cambió'); };
-  // Devuelve qué se puede accionar con la mira en este momento, o null. La palanca solo cuenta desde su lado de la pared.
+  const toggleDoor = (game) => { ex.doorButton.press(); ex.collision.setDoor(!ex.collision.doorClosed); game.say(ex.collision.doorClosed ? 'Puerta cerrada: el mapa cambió' : 'Puerta abierta: el mapa cambió'); };
+  // Devuelve qué se puede accionar con la mira en este momento, o null. El botón solo cuenta desde su lado de la pared.
   ex.target = (game) => {
-    if ((game.pos.x > ex.lever.pos.x - .1 && game.aimsAt(ex.lever.pos, .4, 2.3)) || game.aimsAt(doorAim, DOOR / 2, 2.8)) return { verb: ex.collision.doorClosed ? 'Abrir' : 'Cerrar', act: () => toggleDoor(game) };
-    if (game.aimsAt(ex.prompts.pc, .8, 2.8)) return { verb: 'Copiar', act: () => ex.prompts.deploy(game) };
+    if ((game.pos.x > ex.doorButton.pos.x - .2 && game.aimsAt(ex.doorButton.pos, .3, 2.3)) || game.aimsAt(doorAim, DOOR / 2, 2.8)) return { verb: ex.collision.doorClosed ? 'Abrir' : 'Cerrar', act: () => toggleDoor(game) };
+    if (game.current?.id === 'workers') for (const b of ex.workers.stand) if (game.aimsAt(b.pos, .2, 2.4) && !LESSON_ORDER[LESSON_INDEX.workers].params.busy) return { verb: b.verb, act: () => ex.workers.push(b, game) };
+    if (game.current?.id === 'prompts') {
+      for (const s of ex.prompts.switches) if (game.aimsAt(s.pos, .27, 3.2)) return { verb: `${LESSON_ORDER[LESSON_INDEX.prompts].params[s.key] ? 'Apagar' : 'Encender'}: ${s.name}`, act: () => ex.prompts.flip(s, game) };
+      if (game.aimsAt(ex.prompts.pc, .8, 2.8)) return { verb: 'Copiar', act: () => ex.prompts.deploy(game) };
+    }
     return null;
   };
   return ex;

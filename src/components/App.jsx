@@ -97,6 +97,8 @@ function Minimap() {
       const c = ref.current; if (!c || !game?.world) return; const g = c.getContext('2d'), k = 4.2;
       g.clearRect(0, 0, c.width, c.height);
       for (const l of LESSON_ORDER) { g.fillStyle = S.visited.value.has(l.id) ? `${l.color}66` : '#ffffff14'; g.fillRect(l.col * ROOM * k + 1, l.row * ROOM * k + 1, ROOM * k - 2, ROOM * k - 2); }
+      // Línea del recorrido, pasando por las puertas: las que cambian de fila están corridas hacia el este.
+      g.strokeStyle = '#ffffff88'; g.lineWidth = 1.5; g.beginPath(); LESSON_ORDER.forEach((l, i) => { const x = (l.col + .5) * ROOM * k, y = (l.row + .5) * ROOM * k, prev = LESSON_ORDER[i - 1]; if (!prev) { g.moveTo(x, y); return; } if (prev.row !== l.row) { g.lineTo(x + 3.7 * k, (prev.row + .5) * ROOM * k); g.lineTo(x + 3.7 * k, y); } g.lineTo(x, y); }); g.stroke();
       const px = game.pos.x * k, pz = game.pos.z * k; g.fillStyle = '#fff'; g.beginPath(); g.moveTo(px - Math.sin(game.yaw) * 9, pz - Math.cos(game.yaw) * 9); g.lineTo(px + Math.cos(game.yaw) * 5, pz - Math.sin(game.yaw) * 5); g.lineTo(px - Math.cos(game.yaw) * 5, pz + Math.sin(game.yaw) * 5); g.fill();
     }, 100);
     return () => clearInterval(id);

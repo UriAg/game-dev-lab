@@ -15,7 +15,8 @@ Todos con licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Mod
 | Ultrawide Monitor | dylanheyes | https://sketchfab.com/3d-models/ultrawide-monitor-f84d24b6df3648d884fd9be9c8007dd4 | Sala 12 |
 | Stage Speaker - black | Sousinho | https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508 | Sala 10 |
 | Server Racking System | wpanayides | https://sketchfab.com/3d-models/server-racking-system-6fe2cacf836b4aed96c650b286db5486 | Sala 9 |
-| Caja_1 | roberto_herreratec | https://sketchfab.com/3d-models/caja-1-d10354c910124033860c131c7b624adf | Sala 5 |
+| Wooden Crate Low-poly PBR | MaX3Dd | https://sketchfab.com/3d-models/wooden-crate-low-poly-pbr-f8fb4c96211d475b9370d1c403273fc6 | Sala 5 |
+| Factory Button Model [simple] | joelroyallwest1 | https://sketchfab.com/3d-models/factory-button-model-simple-8aa597ed0e474cd1b94ffb2c8c1405af | Sala 5 |
 | Rusty metal floor texture | patspet | https://sketchfab.com/3d-models/rusty-metal-floor-texture-0652ff4830fe44e2bcc6809a9f5f7d6a | Sala 11 (solo la textura) |
 
 ## Modelos con licencia no comercial
@@ -30,5 +31,5 @@ Estos modelos no pueden usarse si el sitio pasa a tener fines comerciales. Modif
 
 ## Pendientes de verificar antes de publicar
 
-- Modelo de la mujer encapuchada (sala 6): el zip se llamaba terrifying-hooded-horror-woman y su licencia no se registró.
+- Terrifying Hooded Horror Woman, de Purple.Point (sala 6): falta registrar su licencia y la fuente.
 - Textura de piso Poliigon WoodFloorAsh 4186: revisar los términos de Poliigon.

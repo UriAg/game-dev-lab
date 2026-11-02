@@ -7,7 +7,7 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { Input } from './input.js';
 import { Sound, inverseGain } from './audio.js';
-import { buildWorld, roomAt, roomCenter, HEIGHT, COLS, ROWS, ROOM } from './world.js';
+import { buildWorld, showRoomsAround, pieceOffset, roomAt, roomCenter, HEIGHT, COLS, ROWS, ROOM } from './world.js';
 import * as S from './state.js';
 import { LESSON_ORDER, LESSONS } from '../lessons/index.js';
 
@@ -72,7 +72,7 @@ export class Game {
     // El robot sin comprimir solo se usa en la sala 8: se baja recién al entrar.
     const loadRaw = async () => { const t2 = performance.now(), raw = (await gltf.loadAsync('/assets/robot.raw.glb')).scene; this.metrics.rawLoad = performance.now() - t2; return raw; };
     const horror = await gltf.loadAsync('/assets/horror.opt.glb');
-    const names = ['chair', 'table', 'cpu', 'keyboard', 'monitor', 'speaker', 'mouse', 'tv', 'head', 'crate', 'rack'];
+    const names = ['chair', 'table', 'cpu', 'keyboard', 'monitor', 'speaker', 'mouse', 'tv', 'head', 'crate', 'rack', 'button'];
     const models = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await gltf.loadAsync(`/assets/${n}.opt.glb`)])));
     const metal = { map: await ktx2.loadAsync('/assets/metal.ktx2'), normalMap: await ktx2.loadAsync('/assets/metal.normal.ktx2') }; metal.map.colorSpace = THREE.SRGBColorSpace; metal.normalMap.colorSpace = THREE.NoColorSpace; models.metal = metal;
     this.stats = await (await fetch('/assets/stats.json')).json();
@@ -314,12 +314,12 @@ export class Game {
   updateRoom() {
     const r = roomAt(this.pos.x, this.pos.z);
     if (r && r !== this.current) {
-      this.current = r; S.roomName.value = r.title;
+      this.current = r; S.roomName.value = r.title; showRoomsAround(this.world, r); this.roomLight.intensity = 14;
       const c = roomCenter(r.col, r.row); this.roomLight.position.set(c.x, 2.3, c.z); this.roomLight.color.set(r.color).lerp(new THREE.Color('#fff'), .65);
       const tint = this.roomLight.color;
       this.boardSpot.color.copy(tint); this.boardSpot.intensity = 48; this.boardSpot.position.set(c.x - 1, 3.15, c.z - 3.6); this.boardSpot.target.position.set(c.x - 1, 0, c.z - 3.6);
-      this.pedestalSpot.color.copy(tint); const audio = r.id === 'audio', track = r.id === 'smoothing', walk = r.id === 'gamefeel', wide = audio || track || walk || r.id === 'compression', sx = c.x + (audio ? 1.5 : track ? .1 : walk ? 0 : 2.6), sz = c.z + (audio ? 1.8 : track ? 1.75 : walk ? 0 : -1);
-      this.pedestalSpot.intensity = audio || walk ? 90 : this.world.pedestals.has(r.id) ? 80 : 0; this.pedestalSpot.angle = wide ? .78 : .42; this.pedestalSpot.position.set(sx, 3.15, sz); this.pedestalSpot.target.position.set(sx, 0, sz);
+      this.pedestalSpot.color.copy(tint); const audio = r.id === 'audio', track = r.id === 'smoothing', walk = r.id === 'gamefeel', shaders = r.id === 'webgpu', wide = audio || track || walk || shaders || r.id === 'compression', [px, pz] = pieceOffset(r.id), sx = c.x + (audio ? 1.5 : track ? .1 : walk ? 0 : px), sz = c.z + (audio ? 1.8 : track ? 1.75 : walk ? 0 : pz);
+      this.pedestalSpot.intensity = audio || walk || shaders ? 90 : this.world.pedestals.has(r.id) ? 80 : 0; this.pedestalSpot.angle = wide ? .78 : .42; this.pedestalSpot.position.set(sx, 3.15, sz); this.pedestalSpot.target.position.set(sx, 0, sz);
     }
     this.aim = this.findAim(r);
     S.promptText.value = this.aim?.verb ?? '';

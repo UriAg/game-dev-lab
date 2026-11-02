@@ -11,8 +11,9 @@ const getWorker = () => worker ??= new Worker(new URL('../workers/heavy.worker.j
 const runMain = (p) => { const t = performance.now(); heavyJob(p.ms); p.log = `Hilo principal: ${(performance.now() - t).toFixed(0)} ms con la pantalla congelada`; p.mark = { kind: 'main', at: performance.now() }; };
 const runWorker = (p) => { const w = getWorker(); p.busy = true; p.log = 'Worker trabajando...'; p.spin = 0; w.onmessage = ({ data }) => { p.busy = false; p.log = `Worker: ${data.took.toFixed(0)} ms, sin perder frames. Buffer transferido: ${(data.buffer.byteLength / 1048576).toFixed(0)} MB`; }; w.postMessage({ ms: p.ms }); };
 const workers = {
+  actions: { runMain, runWorker },
   id: 'workers', col: 0, row: 2, color: '#a493ff', title: 'Tareas en segundo plano', tagline: 'Cómo hacer trabajo pesado sin congelar la pantalla: Web Workers.',
-  params: { ms: 1200, log: 'Tocá uno de los dos botones del panel.', busy: false, ang: 0 },
+  params: { ms: 1200, log: 'Tocá uno de los dos botones.', busy: false, ang: 0 },
   steps: [
     { h: 'Por qué un juego se congela: un solo hilo para todo', body: `<p>JavaScript corre en un <b>hilo principal</b>, y hace una cosa por vez: tu código, el layout, los clicks, y el pintado.</p><p>Para 60 FPS tenés <b>16,6 ms</b> por frame. Si una función tarda 200 ms, durante ese tiempo no hay frames, ni clicks, ni nada: la página se congela.</p><p>Mirá el gráfico: cada barra es la duración real de un frame. La línea es el límite para llegar a 60 FPS.</p>` },
     { h: 'Probalo: congelar el juego y evitarlo con un worker', controls: [{ type: 'range', key: 'ms', label: 'Duración del trabajo', min: 200, max: 3000, step: 100, fmt: (v) => `${v} ms` }, { type: 'button', label: 'Correr en el hilo principal', action: (p) => setTimeout(() => runMain(p), 30) }, { type: 'button', label: 'Correr en un Worker', action: (p) => runWorker(p) }], body: `<p>Los dos botones ejecutan <b>exactamente la misma función</b>.</p><p>En el hilo principal se congela todo: el círculo, el cubo del pedestal, hasta este panel. Y aparece un pico rojo gigante en el gráfico.</p><p>En el Worker, el círculo sigue girando como si nada.</p><p>Un <b>Web Worker</b> es JavaScript en otro hilo real. Tiene una limitación fuerte: <b>no puede tocar el DOM</b>. Solo intercambia mensajes con el hilo principal.</p>`, code: `const w = new Worker(new URL('./heavy.js', import.meta.url),\n                     { type: 'module' });\nw.postMessage({ ms: 1200 });\nw.onmessage = (e) => usar(e.data);` },
@@ -133,6 +134,7 @@ const blocks = [
   ['k_feel', 'Game feel', 'Pasos por distancia recorrida, head bob con |sin(distancia)| escalado por velocidad, camera roll por yaw rate, con opción de desactivarlos.'],
 ];
 const prompts = {
+  blocks,
   id: 'prompts', col: 3, row: 2, color: '#7ee081', title: 'Cómo pedírselo a una IA', tagline: 'Todo lo que aprendiste, convertido en un prompt.',
   params: { goal: 'un recorrido 3D por una oficina', ...Object.fromEntries(blocks.map(([k]) => [k, true])) },
   output: (p) => `Construí ${p.goal} para navegador.\n\nRequisitos técnicos:\n${blocks.filter(([k]) => p[k]).map(([, n, s]) => `- ${n}: ${s}`).join('\n')}\n\nExplicá las decisiones que tomes. Si una técnica no hace falta para este proyecto, decilo y proponé la alternativa más simple.`,
