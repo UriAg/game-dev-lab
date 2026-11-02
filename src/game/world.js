@@ -8,7 +8,7 @@ import { LESSON_ORDER, LESSON_INDEX } from '../lessons/index.js';
 export const ROOM = 10, COLS = 4, ROWS = 3, HEIGHT = 3.2, WALL = .3, CELL = .2, PLAYER_RADIUS = .3;
 export const roomCenter = (col, row) => new THREE.Vector3(col * ROOM + ROOM / 2, 0, row * ROOM + ROOM / 2);
 // Dónde está la pieza central de cada sala, medido desde el centro. Las que no figuran usan DEFAULT_PIECE.
-const DEFAULT_PIECE = [2.6, -1], PIECES = { compression: [-2.2, 1.5], webgpu: [0, 2.8] };
+const DEFAULT_PIECE = [2.6, -1], PIECES = { stack: [3.7, -2.7], compression: [-2.2, 1.5], webgpu: [0, 2.8] };
 export const pieceOffset = (id) => PIECES[id] ?? DEFAULT_PIECE;
 
 export function roomAt(x, z) {
@@ -101,7 +101,7 @@ export function buildWorld(scene, floorMaps, robotOpt, robotRaw, horror, models)
     box(c.x - 1, 1.75, c.z - 4.8, 4.3, 2.7, .08, accent.set(l.color));
     // Pedestales de la sala
     if (l.id === 'webgpu') for (const dx of [-2.6, 0, 2.6]) box(c.x + dx, .25, c.z + pz, 1.1, .5, 1.1, base.set('#46587e'), true);
-    if (['stack', 'compression', 'workers'].includes(l.id)) box(c.x + px, .25, c.z + pz, 1.5, .5, 1.5, base.set('#46587e'), true);
+    if (['compression', 'workers'].includes(l.id)) box(c.x + px, .25, c.z + pz, 1.5, .5, 1.5, base.set('#46587e'), true);
   }
 
   const shell = mergeGeometries(pieces);
@@ -252,25 +252,39 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   // Obstáculo real: se dibuja y entra en la grilla de colisión.
   const solid = (x0, x1, z0, z1, h, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, h, z1 - z0), new THREE.MeshStandardNodeMaterial({ color: col, roughness: .7 })); m.position.set((x0 + x1) / 2, h / 2, (z0 + z1) / 2); scene.add(m); grid.addBox(x0, x1, z0, z1, 'prop'); return m; };
 
-  // Lobby: capas del stack
-  { const p = pedestal('stack'); const group = new THREE.Group(); group.position.copy(p);
-    const layers = [['Astro', 'HTML estático + islas', '#ff9a3c'], ['Preact + signals', 'interfaz reactiva', '#45d6c4'], ['Three.js WebGPU', 'el mundo 3D', '#8f7bff']];
-    const parts = [];
-    layers.forEach(([a, b, col], i) => {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(1.2 - i * .12, .22, 1.2 - i * .12), new THREE.MeshStandardNodeMaterial({ color: col, roughness: .4 }));
-      s.position.y = .25 + i * .4; group.add(s);
-      const lb = label(a, 1.6, b, col); lb.position.set(1.6, .4 + i * .45, .15); lb.rotation.y = -Math.PI / 6; group.add(lb); parts.push([s, lb, i]);
-    });
-    scene.add(group);
-    const stats = screen(p.x, 1.05, p.z - 3.8, 0, 2.4); let spread = 0, tick = 0;
+  // Lobby: tu propia pantalla separada en las tres capas que la forman.
+  { const p = pedestal('stack'), c = center('stack'); let tick = 0;
+    const stats = screen(c.x + 2.6, 1.05, c.z - 4.8, 0, 2.4);
     // Primera consigna: flota al lado del aro y se va cuando abrís el pizarrón.
-    const c = center('stack'), hintCv = document.createElement('canvas'); hintCv.width = 720; hintCv.height = 300; { const g = hintCv.getContext('2d'); g.fillStyle = '#ffd34d'; g.font = '700 58px "Chakra Petch", sans-serif'; g.textAlign = 'center'; ['Caminá hasta el aro,', 'apuntá con la mira', 'y apretá E'].forEach((t, i) => g.fillText(t, 300, 70 + i * 82)); g.beginPath(); g.moveTo(628, 90); g.lineTo(628, 190); g.lineTo(704, 140); g.closePath(); g.fill(); g.fillRect(596, 124, 34, 32); }
+    const hintCv = document.createElement('canvas'); hintCv.width = 720; hintCv.height = 300; { const g = hintCv.getContext('2d'); g.fillStyle = '#ffd34d'; g.font = '700 58px "Chakra Petch", sans-serif'; g.textAlign = 'center'; ['Caminá hasta el aro,', 'apuntá con la mira', 'y apretá E'].forEach((t, i) => g.fillText(t, 300, 70 + i * 82)); g.beginPath(); g.moveTo(628, 90); g.lineTo(628, 190); g.lineTo(704, 140); g.closePath(); g.fill(); g.fillRect(596, 124, 34, 32); }
     const hintTex = new THREE.CanvasTexture(hintCv); hintTex.colorSpace = THREE.SRGBColorSpace; const hintMat = new THREE.MeshBasicNodeMaterial({ map: hintTex, transparent: true, depthWrite: false }), hint = new THREE.Mesh(new THREE.PlaneGeometry(2.1, .875), hintMat); hint.position.set(c.x - 3.3, 1.45, c.z - 2.6); scene.add(hint); let hintGone = false;
-    plaque('stack', 1.3, .35, -Math.PI / 4, 'Acercate: las capas se separan y muestran qué hay debajo.');
-    ex.stack = { update(dt, t, game) { if (lessonId.value === 'stack') hintGone = true; hintMat.opacity += ((hintGone ? 0 : 1) - hintMat.opacity) * (1 - Math.exp(-dt * 6)); hint.visible = hintMat.opacity > .01; hint.position.y = 1.45 + Math.sin(t * 1.5) * .04; group.children.forEach((c, i) => { if (i < 3 * 2 && c.geometry.type === 'BoxGeometry') c.rotation.y = t * .3; });
-      const near = Math.hypot(game.pos.x - p.x, game.pos.z - p.z) < 3 ? 1 : 0; spread += (near - spread) * (1 - Math.exp(-dt * 5));
-      for (const [s, lb, i] of parts) { s.position.y = .25 + i * .4 + spread * i * .45; lb.position.y = .4 + i * .45 + spread * i * .45; }
-      if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); g.fillStyle = '#9fb2c9'; g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText('Se explican en la página 6 del pizarrón', 30, 290); }); } };
+    plaque('stack', 2.85, -3.4, -.9, 'Apuntá a las capas y apretá E: tu pantalla se arma y se desarma.');
+    const W = 2, H = W * 9 / 16, ry = -Math.PI / 2 + .2, nx = Math.sin(ry), nz = Math.cos(ry), RX = c.x + 4.55, RZ = c.z - 2.85;
+    const layer = (w, h, col, transparent) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; const o = new THREE.Group(); o.rotation.y = ry;
+      o.add(new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicNodeMaterial({ map: t, transparent, depthWrite: !transparent })));
+      const edge = new THREE.MeshBasicNodeMaterial({ color: col }), e = .02; for (const [x, y, a, b] of [[0, H / 2, W + e, e], [0, -H / 2, W + e, e], [-W / 2, 0, e, H], [W / 2, 0, e, H]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(a, b), edge); m.position.set(x, y, .002); o.add(m); }
+      scene.add(o); return { o, t, g: cv.getContext('2d'), w, h }; };
+    const bar = (L, y, name, col, line) => { const g = L.g, k = L.w / 1024; g.fillStyle = 'rgba(7,12,20,.86)'; g.fillRect(0, y * k, L.w, 92 * k); g.textAlign = 'left'; g.fillStyle = col; g.font = `700 ${36 * k}px "Chakra Petch", sans-serif`; g.fillText(name, 26 * k, (y + 40) * k); g.fillStyle = '#eef3fa'; g.font = `${27 * k}px "IBM Plex Sans", sans-serif`; g.fillText(line, 26 * k, (y + 76) * k); };
+    // Atrás, la página: lo que Astro deja listo antes de que el navegador reciba nada.
+    const page = layer(1024, 576, '#ff9a3c', false);
+    { const g = page.g; g.fillStyle = '#10151f'; g.fillRect(0, 0, 1024, 576); g.fillStyle = '#ff9a3c'; g.font = '700 42px "Chakra Petch", sans-serif'; g.fillText('1. Astro: prepara la página', 26, 54); g.fillStyle = '#eef3fa'; g.font = '30px "IBM Plex Sans", sans-serif'; g.fillText('Arma el HTML, los estilos y las fuentes antes de que lleguen.', 26, 104); g.fillText('Y decide qué JavaScript cargar: acá, solo la isla del juego.', 26, 146);
+      g.setLineDash([12, 10]); g.lineWidth = 3; g.strokeStyle = '#ff9a3c'; g.strokeRect(40, 190, 944, 346); g.setLineDash([]); g.fillStyle = '#ff9a3c'; g.font = '26px "JetBrains Mono", monospace'; g.fillText('<canvas> vacío, esperando el mundo', 70, 366); page.t.needsUpdate = true; }
+    // En el medio, el cuadro real que acaba de dibujar la placa de video. Como se ve a sí mismo, forma un túnel.
+    const world = layer(640, 360, '#8f7bff', false), gameCanvas = () => world.source ??= document.querySelector('canvas.world');
+    // Adelante, solo la interfaz: lo demás es transparente.
+    const ui = layer(1024, 576, '#45d6c4', true);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(1.49, .12, 2.45), new THREE.MeshStandardNodeMaterial({ color: '#2b3a5c', roughness: .6 })); rail.position.set(c.x + 4.095, .06, c.z - 2.775); scene.add(rail); grid.addBox(c.x + 3.35, c.x + 4.84, c.z - 4, c.z - 1.55, 'stack');
+    const line = new THREE.Mesh(new THREE.BoxGeometry(.03, .025, 2.45), new THREE.MeshBasicNodeMaterial({ color: '#ff9a3c' })); line.position.set(c.x + 3.335, .11, c.z - 2.775); scene.add(line);
+    let joined = false, closed = 0;
+    const place = () => { const gap = .47 * (1 - closed) + .012, lift = .38 * (1 - closed); [[page, 0, 1], [world, 1, 0], [ui, 2, -1]].forEach(([L, i, up]) => L.o.position.set(RX + nx * gap * i, 1.52 + up * lift, RZ + nz * gap * i)); };
+    place();
+    ex.stack = { aim: new THREE.Vector3(RX + nx * .47, 1.5, RZ + nz * .47), get joined() { return joined; }, toggle() { joined = !joined; },
+      // Va justo después de dibujar: el canvas de WebGPU solo se puede copiar dentro de esa misma tarea.
+      grab(game) { if (game.frame % 10) return; const src = gameCanvas(); if (!src) return; const g = world.g; g.drawImage(src, 0, 0, world.w, world.h); if (closed < .5) bar(world, 0, '2. Three.js: el mundo 3D', '#b7a9ff', 'Salas, luces y modelos, redibujados 60 veces por segundo.'); world.t.needsUpdate = true;
+        const u = ui.g, mini = document.querySelector('canvas.mini'); u.clearRect(0, 0, 1024, 576); if (mini) { u.fillStyle = 'rgba(7,12,20,.8)'; u.fillRect(26, 26, 200, 158); u.drawImage(mini, 34, 34, 184, 142); } u.fillStyle = 'rgba(7,12,20,.8)'; u.fillRect(760, 26, 238, 56); u.fillStyle = '#45d6c4'; u.font = '700 32px "JetBrains Mono", monospace'; u.textAlign = 'left'; u.fillText(`${game.S.fps.value} FPS`, 782, 66); if (closed < .5) bar(ui, 484, '3. Preact: la interfaz', '#45d6c4', 'Menús, textos y este contador, sobre el mundo.'); ui.t.needsUpdate = true; },
+      update(dt, t, game) { if (lessonId.value === 'stack') hintGone = true; hintMat.opacity += ((hintGone ? 0 : 1) - hintMat.opacity) * (1 - Math.exp(-dt * 6)); hint.visible = hintMat.opacity > .01; hint.position.y = 1.45 + Math.sin(t * 1.5) * .04;
+        if (joined && Math.hypot(game.pos.x - RX, game.pos.z - RZ) > 6.5) joined = false; closed += ((joined ? 1 : 0) - closed) * (1 - Math.exp(-dt * 6)); place();
+        if (tick++ % 20 === 0) stats.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Escrituras al signal', 30, 60); g.fillText('Renders de la interfaz', 30, 190); g.font = '700 70px "JetBrains Mono", monospace'; g.fillStyle = '#45d6c4'; g.fillText(String(uiStats.signalUpdates), 30, 135); g.fillStyle = '#ff9a3c'; g.fillText(String(uiStats.appRenders), 30, 265); g.fillStyle = '#9fb2c9'; g.font = '18px "IBM Plex Sans", sans-serif'; g.fillText('Se explican en la página 6 del pizarrón', 30, 290); }); } };
   }
 
   // Teclas WASD que se hunden de verdad
@@ -536,6 +550,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
   // Devuelve qué se puede accionar con la mira en este momento, o null. El botón solo cuenta desde su lado de la pared.
   ex.target = (game) => {
     if ((game.pos.x > ex.doorButton.pos.x - .2 && game.aimsAt(ex.doorButton.pos, .3, 2.3)) || game.aimsAt(doorAim, DOOR / 2, 2.8)) return { verb: ex.collision.doorClosed ? 'Abrir' : 'Cerrar', act: () => toggleDoor(game) };
+    if (game.current?.id === 'stack' && game.aimsAt(ex.stack.aim, 1, 5.5)) return { verb: ex.stack.joined ? 'Separar' : 'Armar', act: () => ex.stack.toggle() };
     if (game.current?.id === 'workers') for (const b of ex.workers.stand) if (game.aimsAt(b.pos, .2, 2.4) && !LESSON_ORDER[LESSON_INDEX.workers].params.busy) return { verb: b.verb, act: () => ex.workers.push(b, game) };
     if (game.current?.id === 'prompts') {
       for (const s of ex.prompts.switches) if (game.aimsAt(s.pos, .27, 3.2)) return { verb: `${LESSON_ORDER[LESSON_INDEX.prompts].params[s.key] ? 'Apagar' : 'Encender'}: ${s.name}`, act: () => ex.prompts.flip(s, game) };

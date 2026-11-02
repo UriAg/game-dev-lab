@@ -268,6 +268,7 @@ export class Game {
     if (this.onFrame) this.onFrame(dt);
     const t0 = performance.now();
     this.pipeline.render();
+    if (room === 'stack') this.world.exhibits.stack.grab(this);
     this.frameInfo = { drawCalls: this.renderer.info.render.drawCalls, triangles: this.renderer.info.render.triangles };
     const b = this.bench;
     if (b) { if (b.skip > 0) b.skip--; else { b.times.push(performance.now() - t0); if (b.times.length >= b.want) { this.bench = null; b.resolve(b.times); } } }
