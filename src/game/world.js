@@ -290,12 +290,9 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
 
   // Teclas WASD que se hunden de verdad
   { const p = pedestal('input'), keys = {}, offKey = '#1f2a42';
-    solid(p.x - .9, p.x + 1.5, p.z - .6, p.z + .6, .9, '#2b3a5c');
+    solid(p.x - .9, p.x + .9, p.z - .6, p.z + .6, .9, '#2b3a5c');
     const panel = new THREE.Group(); panel.position.set(p.x, 1.02, p.z); panel.rotation.x = .35; scene.add(panel);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(2.3, .08, 1.15), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })); top.position.x = .3; panel.add(top);
-    // El mouse de la consola se mueve con el tuyo.
-    const pad = new THREE.Mesh(new THREE.BoxGeometry(.72, .01, .9), new THREE.MeshStandardNodeMaterial({ color: '#46587e', roughness: .9 })); pad.position.set(1.05, .046, 0); panel.add(pad);
-    const mouse = prop(models.mouse, { w: .2 }); mouse.position.set(1.05, .05, 0); panel.add(mouse); let mouseX = 0;
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.7, .08, 1.15), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })); panel.add(top);
     [['KeyW', 0, -.28], ['KeyA', -.5, .26], ['KeyS', 0, .26], ['KeyD', .5, .26]].forEach(([code, x, z]) => {
       const k = new THREE.Mesh(new THREE.BoxGeometry(.44, .14, .44), new THREE.MeshStandardNodeMaterial({ color: offKey, roughness: .4 }));
       k.position.set(x, .1, z); panel.add(k);
@@ -306,7 +303,7 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     });
     plaque('input', 1.1, -.05, -Math.PI / 4, 'Apretá WASD y mové el mouse: la consola responde con vos.');
     const tint = new THREE.Color(), bars = [], moves = screen(p.x, 1.05, p.z - 3.8, 0, 2.4);
-    ex.input = { update(dt, t, game) { const moved = game.input.screenX; mouseX += (Math.max(-.24, Math.min(.24, moved * .012)) - mouseX) * (1 - Math.exp(-dt * 12)); mouse.position.x = 1.05 + mouseX; bars.push(moved); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); if (!bars.some(Boolean)) { g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Mové el mouse y mirá cómo aparecen las barras', 20, 165); } g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
+    ex.input = { update(dt, t, game) { bars.push(game.input.screenX); game.input.screenX = 0; if (bars.length > 90) bars.shift(); moves.draw((g, w, h) => { g.fillStyle = '#9fb2c9'; g.font = '24px "JetBrains Mono", monospace'; g.fillText('movementX', 20, 34); if (!bars.some(Boolean)) { g.font = '26px "IBM Plex Sans", sans-serif'; g.fillText('Mové el mouse para ver las barras', 20, 165); } g.fillStyle = '#45d6c4'; bars.forEach((v, i) => { const b = Math.max(-120, Math.min(120, v * 1.5)); g.fillRect(i * 5.6, b > 0 ? 170 - b : 170, 4, Math.abs(b)); }); });
       const k = 1 - Math.exp(-dt * 25); for (const c in keys) { const on = game.input.keys.has(c); keys[c].position.y += ((on ? .05 : .1) - keys[c].position.y) * k; keys[c].material.color.lerp(tint.set(on ? '#ff9a3c' : offKey), k); } } };
   }
 
@@ -452,14 +449,16 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const strip = new THREE.Mesh(mergeGeometries(ledBars), led); ex.keep.push(strip); scene.add(strip);
     const pulse = new THREE.Mesh(new THREE.SphereGeometry(.08, 12, 12), new THREE.MeshBasicNodeMaterial({ color: '#ff9a3c' })), pulses = [0, 1, 2, 3, 4, 5].map(() => { const q = pulse.clone(); q.visible = false; scene.add(q); return q; }), from = new THREE.Vector3(p.x, .1, p.z + .8), to = new THREE.Vector3(c.x - 2.625, .1, c.z + 3.6);
     const duct = new THREE.Mesh(new THREE.BoxGeometry(from.distanceTo(to), .02, .22), new THREE.MeshStandardNodeMaterial({ color: '#30384a', roughness: .5, metalness: .4 })); duct.position.copy(from).lerp(to, .5).setY(.012); duct.rotation.y = -Math.atan2(to.z - from.z, to.x - from.x); scene.add(duct);
-    const lesson = LESSON_ORDER[LESSON_INDEX.workers], times = screen(c.x + 2.6, 1, c.z - 4.8, 0, 2.4), params = lesson.params, history = []; let tick = 0;
+    const lesson = LESSON_ORDER[LESSON_INDEX.workers], times = screen(c.x + 1.8, .9, c.z + 4.8, Math.PI, 2.6), params = lesson.params, history = []; let tick = 0;
     // Atril con dos botones: el mismo trabajo pesado, en el hilo principal o en un worker.
-    const standX = c.x + .6, standZ = c.z + .25, desk = new THREE.Group(); solid(standX - .55, standX + .55, standZ - .2, standZ + .2, .95, '#2b3a5c'); desk.position.set(standX, 1.02, standZ); desk.rotation.x = .4; scene.add(desk);
+    const standBase = new THREE.Group(), desk = new THREE.Group(), base = new THREE.Mesh(new THREE.BoxGeometry(1.1, .95, .4), new THREE.MeshStandardNodeMaterial({ color: '#2b3a5c', roughness: .7 })); base.position.y = .475; desk.position.y = 1.02; desk.rotation.x = .4;
+    // Parado al noroeste del atril, el cubo queda a tu izquierda y la pantalla a tu derecha.
+    standBase.position.set(c.x + .4, 0, c.z + .4); standBase.rotation.y = -2.09; standBase.add(base, desk); scene.add(standBase); grid.addBox(standBase.position.x - .45, standBase.position.x + .45, standBase.position.z - .45, standBase.position.z + .45, 'stand');
     desk.add(new THREE.Mesh(new THREE.BoxGeometry(1.2, .05, .56), new THREE.MeshStandardNodeMaterial({ color: '#1c2740', roughness: .5 })));
     const stand = [[-.28, '#ff5d73', 'Hilo principal', 'Congelar el juego', 'runMain'], [.28, '#45d6c4', 'Worker', 'Usar el worker', 'runWorker']].map(([dx, col, name, verb, run]) => {
       const cap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .1, .06, 24), new THREE.MeshBasicNodeMaterial({ color: col })); cap.position.set(dx, .06, -.07); desk.add(cap);
       const tag = label(name, .52, '', col); tag.rotation.x = -Math.PI / 2; tag.position.set(dx, .03, .17); desk.add(tag);
-      return { cap, verb, run, push: 0, pos: new THREE.Vector3(standX + dx, 1.12, standZ - .05) }; });
+      cap.updateWorldMatrix(true, false); return { cap, verb, run, push: 0, pos: cap.getWorldPosition(new THREE.Vector3()) }; });
     ex.workers = { stand, // El trabajo arranca un instante después, para que el botón llegue a verse hundido antes de que se congele todo.
       push(b, game) { b.push = 1; setTimeout(() => { lesson.actions[b.run](params); game.say(params.log); }, 90); },
       update(dt, t, game) { m.rotation.x = t * 1.2; m.rotation.y = t * 1.8; const busy = !!params.busy; led.color.set(busy ? '#ff9a3c' : '#2a8f86'); for (const b of stand) { b.push *= Math.exp(-dt * 6); b.cap.position.y = .06 - b.push * .03; }
@@ -479,9 +478,8 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
     monitor.traverse((o) => { if (o.material?.name === 'Screen') { o.material.map = tex; o.material.emissiveMap = tex; } });
     const keyboard = prop(models.keyboard, { w: .44 }); keyboard.position.set(x, deskH, z + .2); scene.add(keyboard);
-    const cpu = prop(models.cpu, { h: .42 }); cpu.position.set(x + .62, deskH, z - .1); scene.add(cpu);
-    const mouse = prop(models.mouse, { w: .12 }); mouse.position.set(x + .34, deskH, z + .2); scene.add(mouse);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(.07, .08, .05, 24), new THREE.MeshBasicNodeMaterial({ color: '#ff2f45' })), base2 = new THREE.Mesh(new THREE.CylinderGeometry(.11, .11, .03, 24), new THREE.MeshStandardNodeMaterial({ color: '#1c2740' })); base2.position.set(x - .55, deskH + .015, z + .15); cap.position.set(x - .55, deskH + .055, z + .15); scene.add(base2, cap);
+    const cpu = prop(models.cpu, { h: .42 }); cpu.position.set(x + .62, deskH, z - .1); cpu.rotation.y = Math.PI; scene.add(cpu);
+    const mouse = prop(models.mouse, { w: .3 }); mouse.position.set(x + .42, deskH, z + .22); scene.add(mouse);
     const lesson = LESSON_ORDER[LESSON_INDEX.prompts], c = center('prompts'); let shown = '', frames = 0, flash = 0;
     // Tablero: un interruptor por técnica, del color de la sala donde se aprendió. Prenderlo suma esa parte al prompt.
     const roomOf = ['stack', 'input', 'yaw', 'collision', 'astar', 'webgpu', 'compression', 'workers', 'audio', 'gamefeel'], PW = 5.4, PH = 2.1, PY = 1.55, wallX = c.x + 4.83, cv2 = document.createElement('canvas'); cv2.width = 1024; cv2.height = 398;
@@ -495,15 +493,16 @@ function buildExhibits(scene, grid, robotOpt, robotRaw, doorBox, doorMesh, doorZ
       for (const s of switches) { const on = lesson.params[s.key]; g2.fillStyle = '#1c2740'; g2.fillRect(s.cx - 44, s.cy - 56, 88, 88); g2.fillStyle = on ? s.tint : '#6f7f96'; g2.font = '700 25px "IBM Plex Sans", sans-serif'; g2.fillText(s.name, s.cx, s.cy + 60); s.mesh.rotation.z = on ? .35 : -.35; s.mesh.material.color.set(on ? s.tint : '#3a4560'); }
       boardTex.needsUpdate = true; };
     const big = screen(c.x, .8, c.z + 4.8, Math.PI, 3.4);
-    plaque('prompts', -3.6, -1.5, -.75, 'Último paso: elegí en el tablero qué pedirle a la IA y apretá el botón rojo.');
+    plaque('prompts', -3.6, -1.5, -.75, 'Último paso: elegí en el tablero qué pedirle a la IA y copiá el prompt desde la PC.');
     const count = () => switches.filter((s) => lesson.params[s.key]).length;
-    const paint = () => { const n = count(); gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '700 56px "JetBrains Mono", monospace'; ['> tu prompt', `> ${n} de ${switches.length} técnicas`, '> botón rojo: copiar'].forEach((t, i) => gc.fillText(t, 50, 110 + i * 110)); tex.needsUpdate = true;
+    const paint = () => { const n = count(); gc.fillStyle = '#07110c'; gc.fillRect(0, 0, 1024, 400); gc.fillStyle = '#7dffb0'; gc.font = '700 56px "JetBrains Mono", monospace'; ['> tu prompt', `> ${n} de ${switches.length} técnicas`, '> apretá E: copiar'].forEach((t, i) => gc.fillText(t, 50, 110 + i * 110)); tex.needsUpdate = true;
       paintBoard();
       big.draw((g, w) => { g.fillStyle = '#7dffb0'; g.font = '700 32px "Chakra Petch", sans-serif'; g.fillText(`Tu prompt: ${n} de ${switches.length} técnicas`, 24, 46); g.font = '22px "IBM Plex Sans", sans-serif'; switches.forEach((s, i) => { g.fillStyle = lesson.params[s.key] ? s.tint : '#3a4560'; g.fillText(s.name, 24 + (i % 2) * 240, 92 + Math.floor(i / 2) * 42); }); }); };
     ex.prompts = { pc: new THREE.Vector3(x, deskH + .2, z), switches, flip(s, game) { lesson.params[s.key] = !lesson.params[s.key]; game.S.paramsRev.value++; game.sound.blip(660); }, deploy(game) { navigator.clipboard?.writeText(lesson.output(lesson.params)).catch(() => {}); flash = 1; game.sound.blip(880); game.say('Prompt copiado. Terminaste el recorrido: pegalo en tu IA'); },
-      update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; cap.position.y = deskH + .055 - flash * .025; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
-    const chair = prop(models.chair, { h: .95 }); chair.position.set(x, 0, z + .75); chair.rotation.y = Math.PI / 2; scene.add(chair);
-    grid.addBox(x - .85, x + .85, z - .45, z + 1.1, 'desk'); }
+      update(dt, t, game) { if (frames++ % 12 === 0) { const text = lesson.output(lesson.params); if (text !== shown) { shown = text; paint(); } } flash *= Math.exp(-dt * 1.4); game.roomLight.intensity = 14 + flash * 70; game.pedestalSpot.intensity = 80 + flash * 220; game.pedestalSpot.color.setHSL(.38, .7 * flash, .8); } };
+    // La silla quedó corrida y girada, como si alguien se acabara de levantar.
+    const chair = prop(models.chair, { h: .95 }); chair.position.set(x - .95, 0, z + 1.15); chair.rotation.y = 2.5; scene.add(chair);
+    grid.addBox(x - .85, x + .85, z - .45, z + .45, 'desk'); grid.addBox(x - 1.25, x - .65, z + .85, z + 1.45, 'chair'); }
 
   // Parlante orbitando la sala de audio
   { const l = LESSON_ORDER[LESSON_INDEX.audio]; const c = roomCenter(l.col, l.row); const m = prop(models.speaker, { h: .7 });
